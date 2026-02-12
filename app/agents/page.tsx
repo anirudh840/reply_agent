@@ -101,7 +101,7 @@ export default function AgentsPage() {
             {showAllAgents ? 'Show Active Only' : 'Show All'}
           </Button>
           <Button onClick={fetchAgents} variant="outline" disabled={loading}>
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : '')} />
             Refresh
           </Button>
           <Button asChild>
