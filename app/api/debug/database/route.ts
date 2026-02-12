@@ -48,14 +48,16 @@ export async function GET(request: NextRequest) {
       .limit(10);
 
     // For each reply, check if there's a corresponding lead
-    const orphanedReplies: Array<{
+    type ReplyInfo = {
       id: string;
       lead_email: string;
       is_truly_interested: boolean;
       created_at: string;
-    }> = [];
-    if (interestedRepliesWithoutLeads) {
-      for (const reply of interestedRepliesWithoutLeads) {
+    };
+
+    const orphanedReplies: ReplyInfo[] = [];
+    if (interestedRepliesWithoutLeads && Array.isArray(interestedRepliesWithoutLeads)) {
+      for (const reply of interestedRepliesWithoutLeads as ReplyInfo[]) {
         const { data: lead } = await supabaseAdmin
           .from('interested_leads')
           .select('id')
