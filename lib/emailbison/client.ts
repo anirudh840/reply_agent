@@ -144,17 +144,32 @@ export class EmailBisonClient {
     replyId: string;
     message: string;
     subject?: string;
+    cc?: string[];
+    bcc?: string[];
+    attachments?: Array<{
+      filename: string;
+      url: string;
+      contentType: string;
+    }>;
   }): Promise<{ success: boolean; message_id?: string }> {
+    const requestBody: any = {
+      message: params.message,
+    };
+
+    if (params.subject) requestBody.subject = params.subject;
+    if (params.cc && params.cc.length > 0) requestBody.cc = params.cc;
+    if (params.bcc && params.bcc.length > 0) requestBody.bcc = params.bcc;
+    if (params.attachments && params.attachments.length > 0) {
+      requestBody.attachments = params.attachments;
+    }
+
     return retryWithBackoff(
       () =>
         this.request<{ success: boolean; message_id?: string }>(
           `/replies/${params.replyId}/reply`,
           {
             method: 'POST',
-            body: JSON.stringify({
-              message: params.message,
-              subject: params.subject,
-            }),
+            body: JSON.stringify(requestBody),
           }
         ),
       RATE_LIMITS.MAX_RETRIES

@@ -22,9 +22,14 @@ import {
   Info,
   Target,
   BarChart3,
+  Paperclip,
+  Upload,
+  Loader2,
 } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/utils';
 import type { InterestedLead, Agent } from '@/lib/types';
+import { RichTextEditor } from '@/components/inbox/RichTextEditor';
+import { toast, Toaster } from 'react-hot-toast';
 
 export default function InboxPage() {
   const [leads, setLeads] = useState<InterestedLead[]>([]);
@@ -37,12 +42,27 @@ export default function InboxPage() {
   const [leadStatusFilter, setLeadStatusFilter] = useState<string[]>([]);
   const [agentStatusFilter, setAgentStatusFilter] = useState<string[]>([]);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string[]>([]);
+  const [intentFilter, setIntentFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [searchQuery, setSearchQuery] = useState('');
 
   // Message states
   const [messageToSend, setMessageToSend] = useState('');
   const [isEditingResponse, setIsEditingResponse] = useState(false);
+
+  // Email composition states
+  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [ccRecipients, setCcRecipients] = useState<string[]>([]);
+  const [bccRecipients, setBccRecipients] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState('');
+  const [bccInput, setBccInput] = useState('');
+  const [attachments, setAttachments] = useState<Array<{
+    filename: string;
+    url: string;
+    contentType: string;
+    size: number;
+  }>>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     fetchAgents();
@@ -51,7 +71,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     fetchLeads();
-  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, dateRange]);
+  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, intentFilter, dateRange]);
 
   const fetchAgents = async () => {
     try {
@@ -112,6 +132,30 @@ export default function InboxPage() {
           );
         }
 
+        // Filter by intent category
+        if (intentFilter !== 'all') {
+          switch (intentFilter) {
+            case 'high_confidence':
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => (lead.response_confidence_score || 0) >= 7
+              );
+              break;
+            case 'medium_confidence':
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => {
+                  const score = lead.response_confidence_score || 0;
+                  return score >= 4 && score < 7;
+                }
+              );
+              break;
+            case 'low_confidence':
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => (lead.response_confidence_score || 0) < 4
+              );
+              break;
+          }
+        }
+
         setLeads(filteredLeads);
 
         // Auto-select first lead if none selected
@@ -148,21 +192,28 @@ export default function InboxPage() {
         body: JSON.stringify({
           lead_id: selectedLead.id,
           message: messageToSend,
+          cc: ccRecipients,
+          bcc: bccRecipients,
+          attachments: attachments,
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        alert('✓ Message sent successfully!');
+        toast.success('Message sent successfully!');
         setMessageToSend('');
+        setCcRecipients([]);
+        setBccRecipients([]);
+        setAttachments([]);
+        setShowCcBcc(false);
         fetchLeads();
       } else {
-        alert(`Failed to send: ${data.error}`);
+        toast.error(`Failed to send: ${data.error}`);
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      alert('Failed to send message');
+      toast.error('Failed to send message');
     } finally {
       setSending(false);
     }
@@ -179,20 +230,28 @@ export default function InboxPage() {
         body: JSON.stringify({
           lead_id: selectedLead.id,
           message: messageToSend,
+          cc: ccRecipients,
+          bcc: bccRecipients,
+          attachments: attachments,
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        alert('✓ Response approved and sent!');
+        toast.success('Response approved and sent!');
+        setMessageToSend('');
+        setCcRecipients([]);
+        setBccRecipients([]);
+        setAttachments([]);
+        setShowCcBcc(false);
         fetchLeads();
       } else {
-        alert(`Failed to send: ${data.error}`);
+        toast.error(`Failed to send: ${data.error}`);
       }
     } catch (error) {
       console.error('Error approving message:', error);
-      alert('Failed to approve and send');
+      toast.error('Failed to approve and send');
     } finally {
       setSending(false);
     }
@@ -236,8 +295,74 @@ export default function InboxPage() {
     return agents.find((a) => a.id === agentId);
   };
 
+  const handleAddCcRecipient = () => {
+    if (ccInput && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ccInput)) {
+      if (!ccRecipients.includes(ccInput)) {
+        setCcRecipients([...ccRecipients, ccInput]);
+        setCcInput('');
+      }
+    } else {
+      toast.error('Please enter a valid email address');
+    }
+  };
+
+  const handleAddBccRecipient = () => {
+    if (bccInput && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bccInput)) {
+      if (!bccRecipients.includes(bccInput)) {
+        setBccRecipients([...bccRecipients, bccInput]);
+        setBccInput('');
+      }
+    } else {
+      toast.error('Please enter a valid email address');
+    }
+  };
+
+  const handleRemoveCcRecipient = (email: string) => {
+    setCcRecipients(ccRecipients.filter((r) => r !== email));
+  };
+
+  const handleRemoveBccRecipient = (email: string) => {
+    setBccRecipients(bccRecipients.filter((r) => r !== email));
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setAttachments([...attachments, data.data]);
+        toast.success('File uploaded successfully');
+      } else {
+        toast.error(data.error || 'Failed to upload file');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveAttachment = (url: string) => {
+    setAttachments(attachments.filter((a) => a.url !== url));
+  };
+
   return (
-    <div className="flex h-screen">
+    <>
+      <Toaster position="top-right" />
+      <div className="flex h-screen">
       {/* Left Sidebar - Filters & Lead List */}
       <div className="w-96 border-r border-gray-200 flex flex-col bg-gray-50">
         {/* Header */}
@@ -281,6 +406,23 @@ export default function InboxPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Intent Filter */}
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-gray-700 mb-2 block">
+              Lead Intent
+            </label>
+            <select
+              value={intentFilter}
+              onChange={(e) => setIntentFilter(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md bg-white"
+            >
+              <option value="all">All Leads</option>
+              <option value="high_confidence">High Confidence (7-10)</option>
+              <option value="medium_confidence">Medium Confidence (4-6)</option>
+              <option value="low_confidence">Low Confidence (0-3)</option>
+            </select>
           </div>
 
           {/* Agent Filter */}
@@ -444,7 +586,7 @@ export default function InboxPage() {
               </div>
 
               {/* Lead Information Panel */}
-              <div className="grid grid-cols-3 gap-4 p-4 bg-white rounded-lg border border-gray-200">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-white rounded-lg border border-gray-200 mb-4">
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Agent</p>
                   <p className="text-sm font-medium text-gray-900">
@@ -491,6 +633,73 @@ export default function InboxPage() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Intent Information Panel */}
+              <div className="p-4 bg-white rounded-lg border border-gray-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Target className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-semibold text-gray-900">Lead Intent Analysis</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">AI Confidence</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full ${
+                            (selectedLead.response_confidence_score || 0) >= 7
+                              ? 'bg-green-500'
+                              : (selectedLead.response_confidence_score || 0) >= 4
+                              ? 'bg-yellow-500'
+                              : 'bg-red-500'
+                          }`}
+                          style={{
+                            width: `${((selectedLead.response_confidence_score || 0) / 10) * 100}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-sm font-bold text-gray-900">
+                        {selectedLead.response_confidence_score || 0}/10
+                      </span>
+                    </div>
+                    <Badge
+                      variant={
+                        (selectedLead.response_confidence_score || 0) >= 7
+                          ? 'default'
+                          : (selectedLead.response_confidence_score || 0) >= 4
+                          ? 'secondary'
+                          : 'destructive'
+                      }
+                      className="text-xs mt-1"
+                    >
+                      {(selectedLead.response_confidence_score || 0) >= 7
+                        ? 'High Confidence'
+                        : (selectedLead.response_confidence_score || 0) >= 4
+                        ? 'Medium Confidence'
+                        : 'Low Confidence'}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">
+                      Conversation Status
+                    </p>
+                    <Badge
+                      variant={
+                        selectedLead.conversation_status === 'active'
+                          ? 'default'
+                          : selectedLead.conversation_status === 'completed'
+                          ? 'secondary'
+                          : 'outline'
+                      }
+                      className="text-xs capitalize"
+                    >
+                      {selectedLead.conversation_status}
+                    </Badge>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -578,20 +787,162 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {/* Message Input */}
+              {/* CC/BCC Toggle */}
+              <div className="mb-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCcBcc(!showCcBcc)}
+                  className="text-xs"
+                >
+                  {showCcBcc ? 'Hide' : 'Show'} CC/BCC
+                </Button>
+              </div>
+
+              {/* CC/BCC Fields */}
+              {showCcBcc && (
+                <div className="space-y-3 mb-3">
+                  {/* CC Field */}
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 mb-1 block">CC</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="email"
+                        placeholder="Add CC recipient..."
+                        value={ccInput}
+                        onChange={(e) => setCcInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCcRecipient();
+                          }
+                        }}
+                        className="text-sm"
+                      />
+                      <Button type="button" size="sm" onClick={handleAddCcRecipient}>
+                        Add
+                      </Button>
+                    </div>
+                    {ccRecipients.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {ccRecipients.map((email) => (
+                          <Badge key={email} variant="secondary" className="text-xs">
+                            {email}
+                            <button
+                              onClick={() => handleRemoveCcRecipient(email)}
+                              className="ml-1 hover:text-red-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BCC Field */}
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 mb-1 block">BCC</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="email"
+                        placeholder="Add BCC recipient..."
+                        value={bccInput}
+                        onChange={(e) => setBccInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddBccRecipient();
+                          }
+                        }}
+                        className="text-sm"
+                      />
+                      <Button type="button" size="sm" onClick={handleAddBccRecipient}>
+                        Add
+                      </Button>
+                    </div>
+                    {bccRecipients.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {bccRecipients.map((email) => (
+                          <Badge key={email} variant="secondary" className="text-xs">
+                            {email}
+                            <button
+                              onClick={() => handleRemoveBccRecipient(email)}
+                              className="ml-1 hover:text-red-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Message Input - Rich Text Editor */}
               <div className="space-y-3">
-                <textarea
-                  value={messageToSend}
-                  onChange={(e) => setMessageToSend(e.target.value)}
+                <RichTextEditor
+                  content={messageToSend}
+                  onChange={setMessageToSend}
                   placeholder={
                     selectedLead.last_response_sent && !selectedLead.needs_approval
                       ? 'Send a follow-up message...'
                       : 'Type your message...'
                   }
-                  rows={6}
-                  disabled={!selectedLead.needs_approval && !selectedLead.last_response_sent}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+
+                {/* File Attachments */}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="file-upload"
+                      className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      {uploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Paperclip className="h-4 w-4" />
+                      )}
+                      {uploading ? 'Uploading...' : 'Attach File'}
+                    </label>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      onChange={handleFileUpload}
+                      disabled={uploading}
+                      className="hidden"
+                    />
+                  </div>
+
+                  {attachments.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {attachments.map((attachment) => (
+                        <div
+                          key={attachment.url}
+                          className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200"
+                        >
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                            <span className="text-sm text-gray-700 truncate">
+                              {attachment.filename}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              ({(attachment.size / 1024).toFixed(1)} KB)
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveAttachment(attachment.url)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex gap-2">
                   {selectedLead.needs_approval ? (
@@ -630,5 +981,6 @@ export default function InboxPage() {
         )}
       </div>
     </div>
+    </>
   );
 }

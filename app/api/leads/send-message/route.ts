@@ -9,7 +9,7 @@ import { createEmailBisonClient } from '@/lib/emailbison/client';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { lead_id, message } = body;
+    const { lead_id, message, cc, bcc, attachments } = body;
 
     if (!lead_id || !message) {
       return NextResponse.json(
@@ -58,6 +58,9 @@ export async function POST(request: NextRequest) {
     const sendResult = await emailbisonClient.sendReply({
       replyId: lastLeadMessage.emailbison_message_id,
       message,
+      cc: cc || [],
+      bcc: bcc || [],
+      attachments: attachments || [],
     });
 
     // Update lead record
