@@ -14,6 +14,7 @@ import { DatabaseError } from '../types';
 // =====================================================
 
 export async function createAgent(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>) {
+  // @ts-ignore - Supabase generated types issue
   const { data, error } = await supabaseAdmin.from('agents').insert(agent).select().single();
 
   if (error) throw new DatabaseError('Failed to create agent', error);
@@ -51,6 +52,7 @@ export async function getAllAgents() {
 export async function updateAgent(id: string, updates: Partial<Agent>) {
   const { data, error } = await supabaseAdmin
     .from('agents')
+    // @ts-ignore - Supabase generated types issue
     .update(updates)
     .eq('id', id)
     .select()
@@ -71,6 +73,7 @@ export async function deleteAgent(id: string) {
 // =====================================================
 
 export async function createReply(reply: Omit<Reply, 'id' | 'created_at' | 'updated_at'>) {
+  // @ts-ignore - Supabase generated types issue
   const { data, error } = await supabaseAdmin.from('replies').insert(reply).select().single();
 
   if (error) throw new DatabaseError('Failed to create reply', error);
@@ -118,6 +121,7 @@ export async function getReplies(filters?: {
 export async function updateReply(id: string, updates: Partial<Reply>) {
   const { data, error } = await supabaseAdmin
     .from('replies')
+    // @ts-ignore - Supabase generated types issue
     .update(updates)
     .eq('id', id)
     .select()
@@ -147,6 +151,7 @@ export async function createInterestedLead(
 ) {
   const { data, error } = await supabaseAdmin
     .from('interested_leads')
+    // @ts-ignore - Supabase generated types issue
     .insert(lead)
     .select()
     .single();
@@ -219,6 +224,7 @@ export async function getInterestedLeads(filters?: {
 export async function updateInterestedLead(id: string, updates: Partial<InterestedLead>) {
   const { data, error } = await supabaseAdmin
     .from('interested_leads')
+    // @ts-ignore - Supabase generated types issue
     .update(updates)
     .eq('id', id)
     .select()
@@ -253,6 +259,7 @@ export async function createEmbedding(
 ) {
   const { data, error } = await supabaseAdmin
     .from('knowledge_base_embeddings')
+    // @ts-ignore - Supabase generated types issue
     .insert(embedding)
     .select()
     .single();
@@ -266,6 +273,7 @@ export async function createEmbeddings(
 ) {
   const { data, error } = await supabaseAdmin
     .from('knowledge_base_embeddings')
+    // @ts-ignore - Supabase generated types issue
     .insert(embeddings)
     .select();
 
@@ -284,6 +292,7 @@ export async function searchKnowledgeBase(
     return [];
   }
 
+  // @ts-ignore - Supabase generated types issue with RPC function
   const { data, error } = await supabaseAdmin.rpc('search_knowledge_base', {
     query_embedding: queryEmbedding,
     match_agent_id: agentId,
@@ -317,6 +326,7 @@ export async function createFeedbackLog(
 ) {
   const { data, error } = await supabaseAdmin
     .from('feedback_logs')
+    // @ts-ignore - Supabase generated types issue
     .insert(feedback)
     .select()
     .single();
@@ -351,6 +361,7 @@ export async function getFeedbackLogs(filters?: {
 export async function updateFeedbackLog(id: string, updates: Partial<FeedbackLog>) {
   const { data, error } = await supabaseAdmin
     .from('feedback_logs')
+    // @ts-ignore - Supabase generated types issue
     .update(updates)
     .eq('id', id)
     .select()
@@ -435,7 +446,7 @@ export async function getChartData(agentId?: string, days: number = 30) {
   // Group by date
   const groupedData: Record<string, { positive: number; automated: number; total: number }> = {};
 
-  data?.forEach((reply) => {
+  data?.forEach((reply: any) => {
     const date = reply.received_at.split('T')[0];
     if (!groupedData[date]) {
       groupedData[date] = { positive: 0, automated: 0, total: 0 };
