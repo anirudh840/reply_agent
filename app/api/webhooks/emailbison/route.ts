@@ -28,14 +28,14 @@ export async function POST(request: NextRequest) {
     // Log the entire payload for debugging
     console.log('[Webhook] Received payload:', JSON.stringify(payload, null, 2));
 
-    // Validate webhook payload
-    if (!payload || payload.event !== 'LEAD_REPLIED') {
-      console.log('[Webhook] Invalid event type:', payload?.event);
+    // Validate webhook payload - EmailBison sends event.type, not just event
+    if (!payload || !payload.event || payload.event.type !== 'LEAD_REPLIED') {
+      console.log('[Webhook] Invalid event type:', payload?.event?.type);
       return NextResponse.json(
         {
           success: false,
-          error: `Invalid webhook event type: ${payload?.event || 'unknown'}. Expected LEAD_REPLIED.`,
-          received_event: payload?.event,
+          error: `Invalid webhook event type: ${payload?.event?.type || 'unknown'}. Expected LEAD_REPLIED.`,
+          received_event: payload?.event?.type,
         },
         { status: 400 }
       );
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Webhook] Received LEAD_REPLIED event for reply ${reply.id}`);
 
     // Check if we've already processed this reply
-    const existingReply = await getReplyByEmailBisonId(reply.id);
+    const existingReply = await getReplyByEmailBisonId(String(reply.id));
     if (existingReply) {
       console.log(`[Webhook] Reply ${reply.id} already processed, skipping`);
       return NextResponse.json({
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Skip automated replies (OOO, bounce, etc.)
-    if (reply.is_automated) {
+    if (reply.automated_reply) {
       console.log(`[Webhook] Reply ${reply.id} is automated, skipping`);
       return NextResponse.json({
         success: true,
@@ -111,9 +111,9 @@ export async function POST(request: NextRequest) {
     // Categorize the reply using AI
     const categorization = await categorizeReply({
       reply: {
-        reply_body: reply.body || '',
-        reply_subject: reply.subject || '',
-        original_status: reply.status || 'unknown',
+        reply_body: reply.text_body || '',
+        reply_subject: reply.email_subject || '',
+        original_status: reply.interested ? 'interested' : 'not_interested',
       },
       openaiApiKey: agent.openai_api_key,
     });
@@ -125,18 +125,18 @@ export async function POST(request: NextRequest) {
     // Store reply in database
     const replyRecord = await createReply({
       agent_id: agent.id,
-      emailbison_reply_id: reply.id,
-      emailbison_campaign_id: campaign?.id || reply.campaign_id || '',
-      lead_email: reply.from_email || lead?.email || '',
-      lead_name: reply.from_name || lead?.first_name || '',
+      emailbison_reply_id: String(reply.id),
+      emailbison_campaign_id: String(campaign?.id || ''),
+      lead_email: reply.from_email_address || lead?.email || '',
+      lead_name: reply.from_name || `${lead?.first_name || ''} ${lead?.last_name || ''}`.trim() || '',
       lead_metadata: lead || {},
-      reply_subject: reply.subject || '',
-      reply_body: reply.body || '',
-      reply_html: reply.html || '',
-      received_at: reply.received_at || new Date().toISOString(),
-      original_status: reply.status || 'unknown',
-      is_automated_original: reply.is_automated || false,
-      is_tracked_original: reply.is_tracked || false,
+      reply_subject: reply.email_subject || '',
+      reply_body: reply.text_body || '',
+      reply_html: reply.html_body || '',
+      received_at: reply.date_received || new Date().toISOString(),
+      original_status: reply.interested ? 'interested' : 'not_interested',
+      is_automated_original: reply.automated_reply || false,
+      is_tracked_original: reply.type === 'Tracked Reply',
       corrected_status: categorization.is_truly_interested ? 'interested' : 'not_interested',
       is_truly_interested: categorization.is_truly_interested,
       ai_confidence_score: categorization.confidence_score,
@@ -151,10 +151,14 @@ export async function POST(request: NextRequest) {
     if (categorization.is_truly_interested) {
       console.log(`[Webhook] Generating response for interested lead`);
 
+      const leadEmail = reply.from_email_address || lead?.email || '';
+      const leadName = reply.from_name || `${lead?.first_name || ''} ${lead?.last_name || ''}`.trim() || '';
+      const leadMessage = reply.text_body || '';
+
       const generatedResponse = await generateResponse({
-        leadEmail: reply.from_email || lead?.email || '',
-        leadName: reply.from_name || lead?.first_name || '',
-        leadMessage: reply.body || '',
+        leadEmail,
+        leadName,
+        leadMessage,
         agent,
         conversationHistory: [],
       });
@@ -172,20 +176,20 @@ export async function POST(request: NextRequest) {
       const interestedLead = await createInterestedLead({
         agent_id: agent.id,
         initial_reply_id: replyRecord.id,
-        lead_email: reply.from_email || lead?.email || '',
-        lead_name: reply.from_name || lead?.first_name || '',
+        lead_email: leadEmail,
+        lead_name: leadName,
         lead_metadata: lead || {},
         conversation_thread: [
           {
             role: 'lead' as const,
-            content: reply.body || '',
-            timestamp: reply.received_at || new Date().toISOString(),
-            emailbison_message_id: reply.id,
+            content: leadMessage,
+            timestamp: reply.date_received || new Date().toISOString(),
+            emailbison_message_id: String(reply.id),
           },
         ],
         last_response_generated: generatedResponse.content,
         response_confidence_score: generatedResponse.confidence_score,
-        last_lead_reply_at: reply.received_at || new Date().toISOString(),
+        last_lead_reply_at: reply.date_received || new Date().toISOString(),
         needs_approval: needsApproval,
         conversation_status: 'active',
         followup_stage: 0,
@@ -200,7 +204,7 @@ export async function POST(request: NextRequest) {
         try {
           const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
           await emailbisonClient.sendReply({
-            replyId: reply.id,
+            replyId: String(reply.id),
             message: generatedResponse.content,
           });
 
