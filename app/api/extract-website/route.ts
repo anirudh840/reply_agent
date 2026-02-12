@@ -38,9 +38,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Perplexity API key not configured',
+          error: 'Perplexity API key not configured. Please add PERPLEXITY_API_KEY to your environment variables or enter information manually.',
+          requiresManualEntry: true,
         },
-        { status: 500 }
+        { status: 400 }
       );
     }
 

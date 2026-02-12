@@ -81,7 +81,11 @@ export default function NewAgentPage() {
           : ['']);
         alert('✓ Information extracted successfully!');
       } else {
-        alert(`Failed to extract: ${data.error}`);
+        if (data.requiresManualEntry) {
+          alert(`⚠️ ${data.error}\n\nYou can still create your agent by entering the information manually below.`);
+        } else {
+          alert(`Failed to extract: ${data.error}`);
+        }
       }
     } catch (error) {
       console.error('Extraction error:', error);
