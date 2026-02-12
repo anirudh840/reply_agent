@@ -3,7 +3,7 @@ import { getAllAgents } from '@/lib/supabase/queries';
 import { createEmailBisonClient } from '@/lib/emailbison/client';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
-import { createReply, createInterestedLead, getReplyByEmailBisonId } from '@/lib/supabase/queries';
+import { createReply, createInterestedLead, getReplyByEmailBisonId, updateInterestedLead } from '@/lib/supabase/queries';
 
 /**
  * POST /api/process-replies
@@ -139,16 +139,34 @@ export async function POST(request: NextRequest) {
               if (needsApproval) {
                 // Mark for approval
                 // This will show up in the inbox for human review
+                console.log(`Lead ${interestedLead.id} marked for approval`);
               } else {
                 // Auto-send response
                 try {
-                  await emailbisonClient.sendReply({
+                  const sendResult = await emailbisonClient.sendReply({
                     replyId: emailbisonReply.id,
                     message: generatedResponse.content,
                   });
 
                   // Update lead record with sent status
-                  // (This would be done through an update query)
+                  const updatedThread = [
+                    ...interestedLead.conversation_thread,
+                    {
+                      role: 'agent' as const,
+                      content: generatedResponse.content,
+                      timestamp: new Date().toISOString(),
+                      emailbison_message_id: sendResult.message_id,
+                    },
+                  ];
+
+                  await updateInterestedLead(interestedLead.id, {
+                    conversation_thread: updatedThread,
+                    last_response_sent: generatedResponse.content,
+                    last_response_sent_at: new Date().toISOString(),
+                    needs_approval: false,
+                  });
+
+                  console.log(`Auto-sent response to ${emailbisonReply.from_email}`);
                 } catch (sendError) {
                   console.error('Error sending auto-reply:', sendError);
                   // Will show in inbox as needs attention

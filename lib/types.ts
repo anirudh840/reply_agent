@@ -129,6 +129,12 @@ export interface InterestedLead {
   next_followup_due_at?: string;
   last_lead_reply_at?: string;
   conversation_status: ConversationStatus;
+  // Category fields from initial reply
+  is_truly_interested?: boolean;
+  is_automated_original?: boolean;
+  is_tracked_original?: boolean;
+  original_status?: string;
+  corrected_status?: ReplyStatus;
 }
 
 // Knowledge Base Embedding Types

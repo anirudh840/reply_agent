@@ -193,7 +193,19 @@ export async function getInterestedLeads(filters?: {
   limit?: number;
   offset?: number;
 }) {
-  let query = supabaseAdmin.from('interested_leads').select('*', { count: 'exact' });
+  // Select interested_leads and join with replies to get category information
+  let query = supabaseAdmin
+    .from('interested_leads')
+    .select(`
+      *,
+      initial_reply:replies!initial_reply_id(
+        is_truly_interested,
+        is_automated_original,
+        is_tracked_original,
+        original_status,
+        corrected_status
+      )
+    `, { count: 'exact' });
 
   // Support both single agent_id and multiple agent_ids
   if (filters?.agent_ids && filters.agent_ids.length > 0) {
@@ -218,7 +230,19 @@ export async function getInterestedLeads(filters?: {
   const { data, error, count } = await query;
 
   if (error) throw new DatabaseError('Failed to get interested leads', error);
-  return { data: data as InterestedLead[], count: count || 0 };
+
+  // Flatten the initial_reply data into the lead object
+  const leads = (data || []).map((lead: any) => ({
+    ...lead,
+    is_truly_interested: lead.initial_reply?.is_truly_interested,
+    is_automated_original: lead.initial_reply?.is_automated_original,
+    is_tracked_original: lead.initial_reply?.is_tracked_original,
+    original_status: lead.initial_reply?.original_status,
+    corrected_status: lead.initial_reply?.corrected_status,
+    initial_reply: undefined, // Remove the nested object
+  }));
+
+  return { data: leads as InterestedLead[], count: count || 0 };
 }
 
 export async function updateInterestedLead(id: string, updates: Partial<InterestedLead>) {

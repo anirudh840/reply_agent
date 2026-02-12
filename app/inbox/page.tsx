@@ -146,43 +146,42 @@ export default function InboxPage() {
         }
 
         // Filter by category (based on EmailBison reply data)
-        // Note: These fields may need to be added to InterestedLead type if not present
         if (selectedCategory !== 'all') {
           switch (selectedCategory) {
             case 'interested':
               // Filter for truly interested leads
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_truly_interested === true
+                (lead: InterestedLead) => lead.is_truly_interested === true
               );
               break;
             case 'not_interested':
               // Filter for not interested leads
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_truly_interested === false
+                (lead: InterestedLead) => lead.is_truly_interested === false
               );
               break;
             case 'automated':
               // Filter for automated replies
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_automated === true
+                (lead: InterestedLead) => lead.is_automated_original === true
               );
               break;
             case 'not_automated':
               // Filter for non-automated replies
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_automated === false
+                (lead: InterestedLead) => lead.is_automated_original === false
               );
               break;
             case 'tracked':
               // Filter for tracked replies
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_tracked === true
+                (lead: InterestedLead) => lead.is_tracked_original === true
               );
               break;
             case 'untracked':
               // Filter for untracked replies
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead as any).is_tracked === false
+                (lead: InterestedLead) => lead.is_tracked_original === false
               );
               break;
           }
@@ -397,17 +396,17 @@ export default function InboxPage() {
 
     switch (category) {
       case 'interested':
-        return leads.filter((lead) => (lead as any).is_truly_interested === true).length;
+        return leads.filter((lead) => lead.is_truly_interested === true).length;
       case 'not_interested':
-        return leads.filter((lead) => (lead as any).is_truly_interested === false).length;
+        return leads.filter((lead) => lead.is_truly_interested === false).length;
       case 'automated':
-        return leads.filter((lead) => (lead as any).is_automated === true).length;
+        return leads.filter((lead) => lead.is_automated_original === true).length;
       case 'not_automated':
-        return leads.filter((lead) => (lead as any).is_automated === false).length;
+        return leads.filter((lead) => lead.is_automated_original === false).length;
       case 'tracked':
-        return leads.filter((lead) => (lead as any).is_tracked === true).length;
+        return leads.filter((lead) => lead.is_tracked_original === true).length;
       case 'untracked':
-        return leads.filter((lead) => (lead as any).is_tracked === false).length;
+        return leads.filter((lead) => lead.is_tracked_original === false).length;
       default:
         return 0;
     }
@@ -1084,6 +1083,50 @@ export default function InboxPage() {
                     </div>
                   </div>
 
+                  {/* Lead Category */}
+                  <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">
+                      Lead Category
+                    </h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Interest Level</span>
+                        <Badge
+                          variant={selectedLead.is_truly_interested ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {selectedLead.is_truly_interested ? 'Interested' : 'Not Interested'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Reply Type</span>
+                        <Badge
+                          variant={selectedLead.is_automated_original ? 'outline' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {selectedLead.is_automated_original ? 'Automated' : 'Personal'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Tracking</span>
+                        <Badge
+                          variant={selectedLead.is_tracked_original ? 'secondary' : 'outline'}
+                          className="text-xs"
+                        >
+                          {selectedLead.is_tracked_original ? 'Tracked' : 'Untracked'}
+                        </Badge>
+                      </div>
+                      {selectedLead.original_status && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-600">EmailBison Status</span>
+                          <span className="text-xs font-medium text-gray-900 capitalize">
+                            {selectedLead.original_status.replace('_', ' ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* AI Analysis */}
                   {selectedLead.response_confidence_score !== undefined && (
                     <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
@@ -1093,7 +1136,7 @@ export default function InboxPage() {
                       <div className="space-y-3">
                         <div>
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-gray-600">Confidence Score</span>
+                            <span className="text-xs text-gray-600">Response Confidence</span>
                             <span className="text-xs font-bold text-gray-900">
                               {selectedLead.response_confidence_score}/10
                             </span>
