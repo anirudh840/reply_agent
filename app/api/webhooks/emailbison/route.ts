@@ -6,6 +6,18 @@ import { createReply, createInterestedLead, getReplyByEmailBisonId } from '@/lib
 import { createEmailBisonClient } from '@/lib/emailbison/client';
 
 /**
+ * GET /api/webhooks/emailbison
+ * Test endpoint to verify webhook is accessible
+ */
+export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    success: true,
+    message: 'EmailBison webhook endpoint is active',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
  * POST /api/webhooks/emailbison
  * Webhook endpoint to receive LEAD_REPLIED events from EmailBison
  */
@@ -13,12 +25,17 @@ export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
 
+    // Log the entire payload for debugging
+    console.log('[Webhook] Received payload:', JSON.stringify(payload, null, 2));
+
     // Validate webhook payload
     if (!payload || payload.event !== 'LEAD_REPLIED') {
+      console.log('[Webhook] Invalid event type:', payload?.event);
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid webhook event type',
+          error: `Invalid webhook event type: ${payload?.event || 'unknown'}. Expected LEAD_REPLIED.`,
+          received_event: payload?.event,
         },
         { status: 400 }
       );
@@ -27,10 +44,16 @@ export async function POST(request: NextRequest) {
     const { reply, campaign, lead } = payload.data || {};
 
     if (!reply || !reply.id) {
+      console.log('[Webhook] Missing reply data:', { hasReply: !!reply, hasId: !!reply?.id });
       return NextResponse.json(
         {
           success: false,
           error: 'Missing reply data in webhook payload',
+          payload_structure: {
+            has_data: !!payload.data,
+            has_reply: !!reply,
+            has_reply_id: !!reply?.id,
+          },
         },
         { status: 400 }
       );
