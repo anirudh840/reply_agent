@@ -41,15 +41,20 @@ export async function POST(request: NextRequest) {
         // Create EmailBison client
         const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
 
-        // Fetch interested replies from last 24 hours
+        // Fetch ALL non-automated replies (not just pre-filtered "interested")
+        // We'll use AI to categorize them properly
         const repliesResult = await emailbisonClient.getReplies({
-          status: 'interested',
           limit: 100,
         });
 
         // Process each reply
         for (const emailbisonReply of repliesResult.data) {
           try {
+            // Skip automated replies (OOO, bounce, etc.)
+            if (emailbisonReply.is_automated) {
+              continue;
+            }
+
             // Check if we've already processed this reply
             const existing = await getReplyByEmailBisonId(emailbisonReply.id);
             if (existing) {
