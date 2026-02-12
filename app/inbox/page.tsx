@@ -18,10 +18,16 @@ import {
   Building2,
   Calendar,
   ChevronDown,
+  ChevronRight,
   X,
   Info,
-  Target,
-  BarChart3,
+  Inbox,
+  ThumbsUp,
+  ThumbsDown,
+  Bot,
+  UserCircle,
+  Eye,
+  EyeOff,
   Paperclip,
   Upload,
   Loader2,
@@ -31,6 +37,8 @@ import type { InterestedLead, Agent } from '@/lib/types';
 import { RichTextEditor } from '@/components/inbox/RichTextEditor';
 import { toast, Toaster } from 'react-hot-toast';
 
+type Category = 'all' | 'interested' | 'not_interested' | 'automated' | 'not_automated' | 'tracked' | 'untracked';
+
 export default function InboxPage() {
   const [leads, setLeads] = useState<InterestedLead[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -38,11 +46,13 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
-  // Filter states
+  // Category navigation
+  const [selectedCategory, setSelectedCategory] = useState<Category>('all');
+
+  // Filter states (removed intent filter)
   const [leadStatusFilter, setLeadStatusFilter] = useState<string[]>([]);
   const [agentStatusFilter, setAgentStatusFilter] = useState<string[]>([]);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string[]>([]);
-  const [intentFilter, setIntentFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -64,6 +74,9 @@ export default function InboxPage() {
   }>>([]);
   const [uploading, setUploading] = useState(false);
 
+  // Lead sidebar collapsed state
+  const [leadSidebarCollapsed, setLeadSidebarCollapsed] = useState(false);
+
   useEffect(() => {
     fetchAgents();
     fetchLeads();
@@ -71,7 +84,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     fetchLeads();
-  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, intentFilter, dateRange]);
+  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, selectedCategory, dateRange]);
 
   const fetchAgents = async () => {
     try {
@@ -132,25 +145,44 @@ export default function InboxPage() {
           );
         }
 
-        // Filter by intent category
-        if (intentFilter !== 'all') {
-          switch (intentFilter) {
-            case 'high_confidence':
+        // Filter by category (based on EmailBison reply data)
+        // Note: These fields may need to be added to InterestedLead type if not present
+        if (selectedCategory !== 'all') {
+          switch (selectedCategory) {
+            case 'interested':
+              // Filter for truly interested leads
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead.response_confidence_score || 0) >= 7
+                (lead: InterestedLead) => (lead as any).is_truly_interested === true
               );
               break;
-            case 'medium_confidence':
+            case 'not_interested':
+              // Filter for not interested leads
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => {
-                  const score = lead.response_confidence_score || 0;
-                  return score >= 4 && score < 7;
-                }
+                (lead: InterestedLead) => (lead as any).is_truly_interested === false
               );
               break;
-            case 'low_confidence':
+            case 'automated':
+              // Filter for automated replies
               filteredLeads = filteredLeads.filter(
-                (lead: InterestedLead) => (lead.response_confidence_score || 0) < 4
+                (lead: InterestedLead) => (lead as any).is_automated === true
+              );
+              break;
+            case 'not_automated':
+              // Filter for non-automated replies
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => (lead as any).is_automated === false
+              );
+              break;
+            case 'tracked':
+              // Filter for tracked replies
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => (lead as any).is_tracked === true
+              );
+              break;
+            case 'untracked':
+              // Filter for untracked replies
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => (lead as any).is_tracked === false
               );
               break;
           }
@@ -359,47 +391,118 @@ export default function InboxPage() {
     setAttachments(attachments.filter((a) => a.url !== url));
   };
 
+  // Get category counts
+  const getCategoryCount = (category: Category): number => {
+    if (category === 'all') return leads.length;
+
+    switch (category) {
+      case 'interested':
+        return leads.filter((lead) => (lead as any).is_truly_interested === true).length;
+      case 'not_interested':
+        return leads.filter((lead) => (lead as any).is_truly_interested === false).length;
+      case 'automated':
+        return leads.filter((lead) => (lead as any).is_automated === true).length;
+      case 'not_automated':
+        return leads.filter((lead) => (lead as any).is_automated === false).length;
+      case 'tracked':
+        return leads.filter((lead) => (lead as any).is_tracked === true).length;
+      case 'untracked':
+        return leads.filter((lead) => (lead as any).is_tracked === false).length;
+      default:
+        return 0;
+    }
+  };
+
+  // Category definitions
+  const categories = [
+    { id: 'all' as Category, label: 'All Inbox', icon: Inbox, color: 'text-gray-700' },
+    { id: 'interested' as Category, label: 'Interested', icon: ThumbsUp, color: 'text-green-600' },
+    { id: 'not_interested' as Category, label: 'Not Interested', icon: ThumbsDown, color: 'text-red-600' },
+    { id: 'automated' as Category, label: 'Automated Reply', icon: Bot, color: 'text-purple-600' },
+    { id: 'not_automated' as Category, label: 'Not Automated Reply', icon: UserCircle, color: 'text-blue-600' },
+    { id: 'tracked' as Category, label: 'Tracked Reply', icon: Eye, color: 'text-indigo-600' },
+    { id: 'untracked' as Category, label: 'Untracked Reply', icon: EyeOff, color: 'text-gray-600' },
+  ];
+
   return (
     <>
       <Toaster position="top-right" />
-      <div className="flex h-screen">
-      {/* Left Sidebar - Filters & Lead List */}
-      <div className="w-96 border-r border-gray-200 flex flex-col bg-gray-50">
+      <div className="flex h-screen bg-gray-50">
+      {/* LEFT PANEL - Categories & Filters (~20%) */}
+      <div className="w-64 border-r border-gray-200 flex flex-col bg-white">
         {/* Header */}
-        <div className="p-4 border-b border-gray-200 bg-white">
-          <h1 className="text-xl font-bold mb-1">Master Inbox</h1>
-          <p className="text-sm text-gray-600">{leads.length} leads</p>
+        <div className="p-4 border-b border-gray-200">
+          <h1 className="text-lg font-bold text-gray-900">Master Inbox</h1>
         </div>
 
-        {/* Search */}
-        <div className="p-3 border-b border-gray-200 bg-white">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              placeholder="Search leads..."
-              className="pl-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        {/* Categories */}
+        <div className="p-2">
+          <div className="space-y-1">
+            {categories.map((category) => (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                  selectedCategory === category.id
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <category.icon className={`h-4 w-4 ${selectedCategory === category.id ? 'text-blue-600' : category.color}`} />
+                  <span>{category.label}</span>
+                </div>
+                <Badge variant="secondary" className="text-xs">
+                  {getCategoryCount(category.id)}
+                </Badge>
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="p-3 border-b border-gray-200 bg-white overflow-y-auto max-h-64">
+        {/* Divider */}
+        <div className="my-2 border-t border-gray-200" />
+
+        {/* Filters Section */}
+        <div className="px-4 py-2">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase mb-3">Filters</h2>
+
+          {/* Lead Status Filter */}
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-700 mb-2 block">
+              Lead Status
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {['active', 'completed', 'paused', 'unresponsive'].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => toggleFilter(leadStatusFilter, setLeadStatusFilter, status)}
+                  className={`px-2 py-1 text-xs rounded-md border capitalize ${
+                    leadStatusFilter.includes(status)
+                      ? 'bg-blue-100 border-blue-300 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Agent Status Filter */}
           <div className="mb-4">
-            <label className="text-xs font-semibold text-gray-700 mb-2 block">
+            <label className="text-xs font-medium text-gray-700 mb-2 block">
               Agent Status
             </label>
             <div className="flex flex-wrap gap-1">
-              {['needs_approval', 'ai_responded', 'error'].map((status) => (
+              {['needs_approval', 'ai_responded'].map((status) => (
                 <button
                   key={status}
                   onClick={() => toggleFilter(agentStatusFilter, setAgentStatusFilter, status)}
                   className={`px-2 py-1 text-xs rounded-md border capitalize ${
                     agentStatusFilter.includes(status)
                       ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
                   {status.replace('_', ' ')}
@@ -408,59 +511,42 @@ export default function InboxPage() {
             </div>
           </div>
 
-          {/* Intent Filter */}
-          <div className="mb-4">
-            <label className="text-xs font-semibold text-gray-700 mb-2 block">
-              Lead Intent
-            </label>
-            <select
-              value={intentFilter}
-              onChange={(e) => setIntentFilter(e.target.value)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md bg-white"
-            >
-              <option value="all">All Leads</option>
-              <option value="high_confidence">High Confidence (7-10)</option>
-              <option value="medium_confidence">Medium Confidence (4-6)</option>
-              <option value="low_confidence">Low Confidence (0-3)</option>
-            </select>
-          </div>
-
           {/* Agent Filter */}
           <div className="mb-4">
-            <label className="text-xs font-semibold text-gray-700 mb-2 block">Agent</label>
-            <div className="space-y-1 max-h-32 overflow-y-auto">
+            <label className="text-xs font-medium text-gray-700 mb-2 block">Agent</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
               {agents.map((agent) => (
-                <label key={agent.id} className="flex items-center gap-2 cursor-pointer">
+                <label key={agent.id} className="flex items-center gap-2 cursor-pointer text-xs">
                   <input
                     type="checkbox"
                     checked={selectedAgentFilter.includes(agent.id)}
                     onChange={() =>
                       toggleFilter(selectedAgentFilter, setSelectedAgentFilter, agent.id)
                     }
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-xs text-gray-700">{agent.name}</span>
+                  <span className="text-gray-700">{agent.name}</span>
                 </label>
               ))}
             </div>
           </div>
 
           {/* Date Range Filter */}
-          <div className="mb-2">
-            <label className="text-xs font-semibold text-gray-700 mb-2 block">Date Range</label>
+          <div className="mb-3">
+            <label className="text-xs font-medium text-gray-700 mb-2 block">Date Range</label>
             <div className="space-y-2">
               <input
                 type="date"
                 value={dateRange.from}
                 onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md"
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
                 placeholder="From"
               />
               <input
                 type="date"
                 value={dateRange.to}
                 onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md"
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
                 placeholder="To"
               />
             </div>
@@ -484,12 +570,39 @@ export default function InboxPage() {
               }}
             >
               <X className="h-3 w-3 mr-1" />
-              Clear All Filters
+              Clear All
             </Button>
           )}
         </div>
 
-        {/* Leads List */}
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Refresh Button */}
+        <div className="p-3 border-t border-gray-200">
+          <Button onClick={fetchLeads} disabled={loading} className="w-full" size="sm">
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* MIDDLE PANEL - Conversation List (~35%) */}
+      <div className="w-96 border-r border-gray-200 flex flex-col bg-white">
+        {/* Search Bar */}
+        <div className="p-3 border-b border-gray-200">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input
+              placeholder="Search conversations..."
+              className="pl-10 text-sm"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Conversation List */}
         <div className="flex-1 overflow-y-auto">
           {loading && leads.length === 0 ? (
             <div className="flex h-32 items-center justify-center">
@@ -498,486 +611,575 @@ export default function InboxPage() {
           ) : leads.length === 0 ? (
             <div className="p-6 text-center">
               <Mail className="mx-auto mb-3 h-10 w-10 text-gray-300" />
-              <p className="text-sm text-gray-500">No leads found</p>
+              <p className="text-sm text-gray-500">No conversations found</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-200">
-              {leads.map((lead) => (
-                <button
-                  key={lead.id}
-                  onClick={() => handleSelectLead(lead)}
-                  className={`w-full p-3 text-left hover:bg-blue-50 transition-colors ${
-                    selectedLead?.id === lead.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-gray-900 truncate">
-                      {lead.lead_name || 'Unknown'}
-                    </h3>
-                    {getStatusBadge(lead)}
-                  </div>
+            <div className="divide-y divide-gray-100">
+              {leads.map((lead) => {
+                const lastMessage = lead.conversation_thread[lead.conversation_thread.length - 1];
+                const isSelected = selectedLead?.id === lead.id;
 
-                  <p className="text-xs text-gray-600 truncate mb-1">{lead.lead_email}</p>
+                return (
+                  <button
+                    key={lead.id}
+                    onClick={() => handleSelectLead(lead)}
+                    className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
+                      isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                    }`}
+                  >
+                    {/* Lead Name & Status */}
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-gray-900 truncate">
+                          {lead.lead_name || 'Unknown Lead'}
+                        </h3>
+                        <p className="text-xs text-gray-500 truncate">{lead.lead_email}</p>
+                      </div>
+                      <div className="ml-2 flex-shrink-0">
+                        <span className="text-xs text-gray-400">
+                          {formatRelativeTime(lead.updated_at)}
+                        </span>
+                      </div>
+                    </div>
 
-                  <div className="flex items-center gap-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {lead.conversation_thread.length}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatRelativeTime(lead.updated_at)}
-                    </span>
-                  </div>
+                    {/* Last Message Preview */}
+                    <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                      {lastMessage?.content || 'No messages'}
+                    </p>
 
-                  {lead.needs_approval && (
-                    <Badge variant="destructive" className="mt-2 text-xs">
-                      Confidence: {lead.response_confidence_score}/10
-                    </Badge>
-                  )}
-                </button>
-              ))}
+                    {/* Status Badge and Message Count */}
+                    <div className="flex items-center justify-between">
+                      {getStatusBadge(lead)}
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <Mail className="h-3 w-3" />
+                        {lead.conversation_thread.length}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
-
-        {/* Refresh Button */}
-        <div className="p-3 border-t border-gray-200 bg-white">
-          <Button onClick={fetchLeads} disabled={loading} className="w-full" size="sm">
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh Leads
-          </Button>
-        </div>
       </div>
 
-      {/* Right Panel - Conversation & Actions */}
-      <div className="flex-1 flex flex-col bg-white">
+      {/* RIGHT PANEL - Thread View & Lead Sidebar (~45%) */}
+      <div className="flex-1 flex bg-white">
         {!selectedLead ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <Mail className="mx-auto mb-4 h-16 w-16 text-gray-300" />
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">No lead selected</h3>
-              <p className="text-gray-500">Select a lead from the list to view details</p>
+              <h3 className="text-lg font-semibold text-gray-700 mb-2">No conversation selected</h3>
+              <p className="text-gray-500">Select a conversation to view the thread</p>
             </div>
           </div>
         ) : (
-          <>
-            {/* Lead Header with Info Panel */}
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900 mb-1">
-                    {selectedLead.lead_name || 'Unknown Lead'}
-                  </h2>
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-4 w-4" />
-                      {selectedLead.lead_email}
-                    </span>
-                    {selectedLead.lead_company && (
-                      <span className="flex items-center gap-1">
-                        <Building2 className="h-4 w-4" />
-                        {selectedLead.lead_company}
-                      </span>
-                    )}
+          <div className="flex-1 flex">
+            {/* Thread View Section */}
+            <div className={`flex flex-col transition-all ${leadSidebarCollapsed ? 'flex-1' : 'w-2/3'}`}>
+              {/* Approval Banner */}
+              {selectedLead.needs_approval && (
+                <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                      <div>
+                        <h3 className="text-sm font-semibold text-yellow-900 mb-1">
+                          AI Response Pending Approval
+                        </h3>
+                        <p className="text-xs text-yellow-700">
+                          AI confidence: {selectedLead.response_confidence_score}/10 - Please review and approve or edit the suggested response below.
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="destructive" className="text-xs">
+                      Action Required
+                    </Badge>
                   </div>
                 </div>
-                {getStatusBadge(selectedLead)}
-              </div>
+              )}
 
-              {/* Lead Information Panel */}
-              <div className="grid grid-cols-3 gap-4 p-4 bg-white rounded-lg border border-gray-200 mb-4">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">Agent</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {getAgent(selectedLead.agent_id)?.name || 'Unknown'}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">Status</p>
-                  <p className="text-sm font-medium text-gray-900 capitalize">
-                    {selectedLead.conversation_status}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">Messages</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {selectedLead.conversation_thread.length}
-                  </p>
-                </div>
-                {selectedLead.needs_approval && (
-                  <>
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-gray-500 uppercase">
-                        AI Confidence
-                      </p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedLead.response_confidence_score}/10
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-gray-500 uppercase">
-                        Approval Status
-                      </p>
-                      <Badge variant="destructive" className="text-xs">
-                        Awaiting Review
-                      </Badge>
-                    </div>
-                  </>
-                )}
-                {selectedLead.last_response_sent_at && (
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Last Sent</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {formatRelativeTime(selectedLead.last_response_sent_at)}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Intent Information Panel */}
-              <div className="p-4 bg-white rounded-lg border border-gray-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <Target className="h-4 w-4 text-blue-600" />
-                  <h3 className="text-sm font-semibold text-gray-900">Lead Intent Analysis</h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-3">
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-gray-500 uppercase">AI Confidence</p>
+              {/* AI Responded Banner */}
+              {selectedLead.last_response_sent && !selectedLead.needs_approval && (
+                <div className="p-3 bg-green-50 border-b border-green-200">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-gray-200 rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full ${
-                            (selectedLead.response_confidence_score || 0) >= 7
-                              ? 'bg-green-500'
-                              : (selectedLead.response_confidence_score || 0) >= 4
-                              ? 'bg-yellow-500'
-                              : 'bg-red-500'
-                          }`}
-                          style={{
-                            width: `${((selectedLead.response_confidence_score || 0) / 10) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-sm font-bold text-gray-900">
-                        {selectedLead.response_confidence_score || 0}/10
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-xs font-medium text-green-900">
+                        AI response sent {formatRelativeTime(selectedLead.last_response_sent_at!)}
                       </span>
                     </div>
-                    <Badge
-                      variant={
-                        (selectedLead.response_confidence_score || 0) >= 7
-                          ? 'default'
-                          : (selectedLead.response_confidence_score || 0) >= 4
-                          ? 'secondary'
-                          : 'destructive'
-                      }
-                      className="text-xs mt-1"
-                    >
-                      {(selectedLead.response_confidence_score || 0) >= 7
-                        ? 'High Confidence'
-                        : (selectedLead.response_confidence_score || 0) >= 4
-                        ? 'Medium Confidence'
-                        : 'Low Confidence'}
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-gray-500 uppercase">
-                      Conversation Status
-                    </p>
-                    <Badge
-                      variant={
-                        selectedLead.conversation_status === 'active'
-                          ? 'default'
-                          : selectedLead.conversation_status === 'completed'
-                          ? 'secondary'
-                          : 'outline'
-                      }
-                      className="text-xs capitalize"
-                    >
-                      {selectedLead.conversation_status}
-                    </Badge>
                   </div>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Conversation Thread */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-              <div className="max-w-3xl mx-auto space-y-4">
-                {selectedLead.conversation_thread.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${message.role === 'lead' ? 'justify-start' : 'justify-end'}`}
-                  >
-                    <div
-                      className={`max-w-2xl rounded-lg p-4 shadow-sm ${
-                        message.role === 'lead'
-                          ? 'bg-white border border-gray-200'
-                          : 'bg-blue-600 text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <User className="h-4 w-4" />
-                        <span className="text-sm font-semibold">
-                          {message.role === 'lead'
-                            ? selectedLead.lead_name || 'Lead'
-                            : 'You (AI Agent)'}
+              {/* Thread Header */}
+              <div className="p-4 border-b border-gray-200 bg-gray-50">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900 mb-1">
+                      {selectedLead.lead_name || 'Unknown Lead'}
+                    </h2>
+                    <div className="flex items-center gap-3 text-sm text-gray-600">
+                      <span className="flex items-center gap-1">
+                        <Mail className="h-4 w-4" />
+                        {selectedLead.lead_email}
+                      </span>
+                      {selectedLead.lead_company && (
+                        <span className="flex items-center gap-1">
+                          <Building2 className="h-4 w-4" />
+                          {selectedLead.lead_company}
                         </span>
-                        <span
-                          className={`text-xs ${
-                            message.role === 'lead' ? 'text-gray-500' : 'text-blue-100'
-                          }`}
-                        >
-                          {new Date(message.timestamp).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Message Composer */}
-            <div className="p-4 border-t border-gray-200 bg-white">
-              {/* AI Responded - Read Only */}
-              {selectedLead.last_response_sent && !selectedLead.needs_approval ? (
-                <div className="mb-3 p-4 bg-green-50 border border-green-200 rounded-md">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-semibold text-green-900">
-                      AI Response Sent
-                    </span>
-                    <span className="text-xs text-green-700 ml-auto">
-                      {new Date(selectedLead.last_response_sent_at!).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="bg-white p-3 rounded border border-green-200 mt-2">
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                      {selectedLead.last_response_sent}
-                    </p>
-                  </div>
-                  <p className="text-xs text-green-700 mt-2">
-                    This message was automatically sent by AI. You can send a new message below if needed.
-                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setLeadSidebarCollapsed(!leadSidebarCollapsed)}
+                    className="text-xs"
+                  >
+                    {leadSidebarCollapsed ? (
+                      <>
+                        <ChevronRight className="h-4 w-4 mr-1" />
+                        Show Details
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-4 w-4 mr-1" />
+                        Hide Details
+                      </>
+                    )}
+                  </Button>
                 </div>
-              ) : null}
+              </div>
 
-              {/* Needs Approval - Editable */}
-              {selectedLead.needs_approval && selectedLead.last_response_generated && (
-                <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-yellow-900">
-                      AI Generated Response (Confidence: {selectedLead.response_confidence_score}
-                      /10)
-                    </span>
-                    {!isEditingResponse && (
+              {/* Email Thread - Individual Email Cards */}
+              <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+                <div className="space-y-3">
+                  {selectedLead.conversation_thread.map((message, index) => (
+                    <div
+                      key={index}
+                      className={`rounded-lg border shadow-sm bg-white p-4`}
+                    >
+                      {/* Email Header */}
+                      <div className="flex items-start justify-between mb-3 pb-3 border-b border-gray-100">
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                            message.role === 'lead' ? 'bg-gray-200' : 'bg-blue-100'
+                          }`}>
+                            {message.role === 'lead' ? (
+                              <User className="h-5 w-5 text-gray-600" />
+                            ) : (
+                              <Bot className="h-5 w-5 text-blue-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {message.role === 'lead'
+                                  ? selectedLead.lead_name || 'Lead'
+                                  : getAgent(selectedLead.agent_id)?.name || 'AI Agent'}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {new Date(message.timestamp).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {message.role === 'lead' ? `<${selectedLead.lead_email}>` : 'AI Response'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Email Body */}
+                      <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                        {message.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Message Composer */}
+              <div className="p-4 border-t border-gray-200 bg-white">
+                {/* AI Generated Response Notice */}
+                {selectedLead.needs_approval && selectedLead.last_response_generated && !isEditingResponse && (
+                  <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-blue-900">
+                        AI Suggested Response (Confidence: {selectedLead.response_confidence_score}/10)
+                      </span>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => setIsEditingResponse(true)}
+                        className="text-xs"
                       >
                         <Edit3 className="h-3 w-3 mr-1" />
                         Edit
                       </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* CC/BCC Toggle */}
-              <div className="mb-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCcBcc(!showCcBcc)}
-                  className="text-xs"
-                >
-                  {showCcBcc ? 'Hide' : 'Show'} CC/BCC
-                </Button>
-              </div>
-
-              {/* CC/BCC Fields */}
-              {showCcBcc && (
-                <div className="space-y-3 mb-3">
-                  {/* CC Field */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1 block">CC</label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="email"
-                        placeholder="Add CC recipient..."
-                        value={ccInput}
-                        onChange={(e) => setCcInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddCcRecipient();
-                          }
-                        }}
-                        className="text-sm"
-                      />
-                      <Button type="button" size="sm" onClick={handleAddCcRecipient}>
-                        Add
-                      </Button>
                     </div>
-                    {ccRecipients.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {ccRecipients.map((email) => (
-                          <Badge key={email} variant="secondary" className="text-xs">
-                            {email}
-                            <button
-                              onClick={() => handleRemoveCcRecipient(email)}
-                              className="ml-1 hover:text-red-600"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* BCC Field */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1 block">BCC</label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="email"
-                        placeholder="Add BCC recipient..."
-                        value={bccInput}
-                        onChange={(e) => setBccInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddBccRecipient();
-                          }
-                        }}
-                        className="text-sm"
-                      />
-                      <Button type="button" size="sm" onClick={handleAddBccRecipient}>
-                        Add
-                      </Button>
+                    <div className="text-xs text-blue-700">
+                      Review the AI-generated response below. You can edit it before sending.
                     </div>
-                    {bccRecipients.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {bccRecipients.map((email) => (
-                          <Badge key={email} variant="secondary" className="text-xs">
-                            {email}
-                            <button
-                              onClick={() => handleRemoveBccRecipient(email)}
-                              className="ml-1 hover:text-red-600"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
                   </div>
+                )}
+
+                {/* CC/BCC Toggle */}
+                <div className="mb-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCcBcc(!showCcBcc)}
+                    className="text-xs"
+                  >
+                    {showCcBcc ? 'Hide' : 'Show'} CC/BCC
+                  </Button>
                 </div>
-              )}
 
-              {/* Message Input - Rich Text Editor */}
-              <div className="space-y-3">
-                <RichTextEditor
-                  content={messageToSend}
-                  onChange={setMessageToSend}
-                  placeholder={
-                    selectedLead.last_response_sent && !selectedLead.needs_approval
-                      ? 'Send a follow-up message...'
-                      : 'Type your message...'
-                  }
-                />
-
-                {/* File Attachments */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <label
-                      htmlFor="file-upload"
-                      className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
-                    >
-                      {uploading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Paperclip className="h-4 w-4" />
-                      )}
-                      {uploading ? 'Uploading...' : 'Attach File'}
-                    </label>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      onChange={handleFileUpload}
-                      disabled={uploading}
-                      className="hidden"
-                    />
-                  </div>
-
-                  {attachments.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {attachments.map((attachment) => (
-                        <div
-                          key={attachment.url}
-                          className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200"
-                        >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                            <span className="text-sm text-gray-700 truncate">
-                              {attachment.filename}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              ({(attachment.size / 1024).toFixed(1)} KB)
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleRemoveAttachment(attachment.url)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                {/* CC/BCC Fields */}
+                {showCcBcc && (
+                  <div className="space-y-2 mb-3">
+                    {/* CC Field */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 mb-1 block">CC</label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="email"
+                          placeholder="Add CC recipient..."
+                          value={ccInput}
+                          onChange={(e) => setCcInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCcRecipient();
+                            }
+                          }}
+                          className="text-sm"
+                        />
+                        <Button type="button" size="sm" onClick={handleAddCcRecipient}>
+                          Add
+                        </Button>
+                      </div>
+                      {ccRecipients.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {ccRecipients.map((email) => (
+                            <Badge key={email} variant="secondary" className="text-xs">
+                              {email}
+                              <button
+                                onClick={() => handleRemoveCcRecipient(email)}
+                                className="ml-1 hover:text-red-600"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
 
-                <div className="flex gap-2">
-                  {selectedLead.needs_approval ? (
-                    <>
-                      <Button
-                        onClick={handleApproveAndSend}
-                        disabled={sending || !messageToSend.trim()}
-                        className="flex-1"
+                    {/* BCC Field */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 mb-1 block">BCC</label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="email"
+                          placeholder="Add BCC recipient..."
+                          value={bccInput}
+                          onChange={(e) => setBccInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddBccRecipient();
+                            }
+                          }}
+                          className="text-sm"
+                        />
+                        <Button type="button" size="sm" onClick={handleAddBccRecipient}>
+                          Add
+                        </Button>
+                      </div>
+                      {bccRecipients.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {bccRecipients.map((email) => (
+                            <Badge key={email} variant="secondary" className="text-xs">
+                              {email}
+                              <button
+                                onClick={() => handleRemoveBccRecipient(email)}
+                                className="ml-1 hover:text-red-600"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Rich Text Editor */}
+                <div className="space-y-3">
+                  <RichTextEditor
+                    content={messageToSend}
+                    onChange={setMessageToSend}
+                    placeholder={
+                      selectedLead.needs_approval
+                        ? 'Review and edit AI response...'
+                        : 'Type your message...'
+                    }
+                  />
+
+                  {/* File Attachments */}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor="file-upload"
+                        className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
                       >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        {sending ? 'Sending...' : 'Approve & Send'}
-                      </Button>
+                        {uploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Paperclip className="h-4 w-4" />
+                        )}
+                        {uploading ? 'Uploading...' : 'Attach File'}
+                      </label>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        onChange={handleFileUpload}
+                        disabled={uploading}
+                        className="hidden"
+                      />
+                    </div>
+
+                    {attachments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {attachments.map((attachment) => (
+                          <div
+                            key={attachment.url}
+                            className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                              <span className="text-sm text-gray-700 truncate">
+                                {attachment.filename}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                ({(attachment.size / 1024).toFixed(1)} KB)
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveAttachment(attachment.url)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Send Buttons */}
+                  <div className="flex gap-2">
+                    {selectedLead.needs_approval ? (
+                      <>
+                        <Button
+                          onClick={handleApproveAndSend}
+                          disabled={sending || !messageToSend.trim()}
+                          className="flex-1"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          {sending ? 'Sending...' : 'Approve & Send'}
+                        </Button>
+                        <Button
+                          onClick={handleSendMessage}
+                          disabled={sending || !messageToSend.trim()}
+                          variant="outline"
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          Send Different
+                        </Button>
+                      </>
+                    ) : (
                       <Button
                         onClick={handleSendMessage}
                         disabled={sending || !messageToSend.trim()}
-                        variant="outline"
+                        className="flex-1"
                       >
                         <Send className="h-4 w-4 mr-2" />
-                        Send Different Message
+                        {sending ? 'Sending...' : 'Send Message'}
                       </Button>
-                    </>
-                  ) : (
-                    <Button
-                      onClick={handleSendMessage}
-                      disabled={sending || !messageToSend.trim()}
-                      className="flex-1"
-                    >
-                      <Send className="h-4 w-4 mr-2" />
-                      {sending ? 'Sending...' : 'Send Message'}
-                    </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </>
+            {/* Lead Details Sidebar (Collapsible) */}
+            {!leadSidebarCollapsed && (
+              <div className="w-1/3 border-l border-gray-200 bg-gray-50 overflow-y-auto">
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    Lead Details
+                  </h3>
+
+                  {/* Contact Information */}
+                  <div className="mb-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Contact</h4>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="text-gray-600">Name:</span>
+                        <p className="font-medium text-gray-900">
+                          {selectedLead.lead_name || 'Unknown'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Email:</span>
+                        <p className="font-medium text-gray-900">{selectedLead.lead_email}</p>
+                      </div>
+                      {selectedLead.lead_company && (
+                        <div>
+                          <span className="text-gray-600">Company:</span>
+                          <p className="font-medium text-gray-900">{selectedLead.lead_company}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Conversation Metrics */}
+                  <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">Metrics</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Messages</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {selectedLead.conversation_thread.length}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Status</span>
+                        <Badge
+                          variant={
+                            selectedLead.conversation_status === 'active'
+                              ? 'default'
+                              : selectedLead.conversation_status === 'completed'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                          className="text-xs capitalize"
+                        >
+                          {selectedLead.conversation_status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Agent</span>
+                        <span className="text-xs font-medium text-gray-900">
+                          {getAgent(selectedLead.agent_id)?.name || 'Unknown'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Analysis */}
+                  {selectedLead.response_confidence_score !== undefined && (
+                    <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">
+                        AI Analysis
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-600">Confidence Score</span>
+                            <span className="text-xs font-bold text-gray-900">
+                              {selectedLead.response_confidence_score}/10
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full transition-all ${
+                                (selectedLead.response_confidence_score || 0) >= 7
+                                  ? 'bg-green-500'
+                                  : (selectedLead.response_confidence_score || 0) >= 4
+                                  ? 'bg-yellow-500'
+                                  : 'bg-red-500'
+                              }`}
+                              style={{
+                                width: `${
+                                  ((selectedLead.response_confidence_score || 0) / 10) * 100
+                                }%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-gray-600">Confidence Level</span>
+                          <Badge
+                            variant={
+                              (selectedLead.response_confidence_score || 0) >= 7
+                                ? 'default'
+                                : (selectedLead.response_confidence_score || 0) >= 4
+                                ? 'secondary'
+                                : 'destructive'
+                            }
+                            className="text-xs mt-1 block w-fit"
+                          >
+                            {(selectedLead.response_confidence_score || 0) >= 7
+                              ? 'High'
+                              : (selectedLead.response_confidence_score || 0) >= 4
+                              ? 'Medium'
+                              : 'Low'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Timeline */}
+                  <div className="mb-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Timeline</h4>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3 text-gray-400" />
+                        <span className="text-gray-600">Created:</span>
+                        <span className="font-medium text-gray-900">
+                          {formatRelativeTime(selectedLead.created_at)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3 text-gray-400" />
+                        <span className="text-gray-600">Updated:</span>
+                        <span className="font-medium text-gray-900">
+                          {formatRelativeTime(selectedLead.updated_at)}
+                        </span>
+                      </div>
+                      {selectedLead.last_response_sent_at && (
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-3 w-3 text-gray-400" />
+                          <span className="text-gray-600">Last Response:</span>
+                          <span className="font-medium text-gray-900">
+                            {formatRelativeTime(selectedLead.last_response_sent_at)}
+                          </span>
+                        </div>
+                      )}
+                      {selectedLead.approved_at && (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-3 w-3 text-green-500" />
+                          <span className="text-gray-600">Approved:</span>
+                          <span className="font-medium text-gray-900">
+                            {formatRelativeTime(selectedLead.approved_at)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
