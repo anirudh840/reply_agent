@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
               // Mark as unresponsive
               await updateInterestedLead(lead.id, {
                 conversation_status: 'unresponsive',
-                next_followup_due_at: null,
+                next_followup_due_at: undefined,
               });
 
               continue;
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
               last_response_sent: followup.content,
               last_response_sent_at: new Date().toISOString(),
               followup_stage: nextStage,
-              next_followup_due_at: nextFollowupDate?.toISOString() || null,
+              next_followup_due_at: nextFollowupDate?.toISOString() || undefined,
               conversation_status:
                 nextStage >= agent.followup_sequence.steps.length
                   ? 'completed'
@@ -146,9 +146,9 @@ export async function POST(request: NextRequest) {
               lead_id: lead.id,
               feedback_type: 'accepted',
               original_response: followup.content,
-              user_edited_response: null,
-              corrections: null,
-              extracted_patterns: null,
+              user_edited_response: undefined,
+              corrections: undefined,
+              extracted_patterns: undefined,
               applied_to_knowledge_base: false,
             });
 

@@ -103,6 +103,11 @@ export async function POST(request: NextRequest) {
                 conversationHistory: [],
               });
 
+              // Determine if approval is needed
+              const needsApproval =
+                agent.mode === 'human_in_loop' ||
+                generatedResponse.confidence_score < agent.confidence_threshold;
+
               // Create or update interested lead record
               const interestedLead = await createInterestedLead({
                 agent_id: agent.id,
@@ -112,7 +117,7 @@ export async function POST(request: NextRequest) {
                 lead_metadata: emailbisonReply.lead_data || {},
                 conversation_thread: [
                   {
-                    role: 'lead',
+                    role: 'lead' as const,
                     content: emailbisonReply.body,
                     timestamp: emailbisonReply.received_at,
                     emailbison_message_id: emailbisonReply.id,
@@ -121,12 +126,10 @@ export async function POST(request: NextRequest) {
                 last_response_generated: generatedResponse.content,
                 response_confidence_score: generatedResponse.confidence_score,
                 last_lead_reply_at: emailbisonReply.received_at,
+                needs_approval: needsApproval,
+                conversation_status: 'active',
+                followup_stage: 0,
               });
-
-              // Determine if approval is needed
-              const needsApproval =
-                agent.mode === 'human_in_loop' ||
-                generatedResponse.confidence_score < agent.confidence_threshold;
 
               if (needsApproval) {
                 // Mark for approval

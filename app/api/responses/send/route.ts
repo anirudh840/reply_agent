@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
           feedback_type: 'edited',
           original_response: lead.last_response_generated || '',
           user_edited_response: response_content,
-          corrections: null,
-          extracted_patterns: null,
+          corrections: undefined,
+          extracted_patterns: undefined,
           applied_to_knowledge_base: false,
         });
       } else if (!edited) {
@@ -110,9 +110,9 @@ export async function POST(request: NextRequest) {
           lead_id: lead.id,
           feedback_type: 'accepted',
           original_response: response_content,
-          user_edited_response: null,
-          corrections: null,
-          extracted_patterns: null,
+          user_edited_response: undefined,
+          corrections: undefined,
+          extracted_patterns: undefined,
           applied_to_knowledge_base: false,
         });
       }

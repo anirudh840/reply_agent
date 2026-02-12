@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
           was_approved: true,
           edit_type: 'modified',
         },
+        applied_to_knowledge_base: false,
       });
     } else {
       await createFeedbackLog({
@@ -59,12 +60,13 @@ export async function POST(request: NextRequest) {
         lead_id: lead.id,
         feedback_type: 'accepted',
         original_response: lead.last_response_generated || '',
-        user_edited_response: null,
+        user_edited_response: undefined,
         corrections: {
           confidence_score: lead.response_confidence_score,
           was_approved: true,
           edit_type: 'none',
         },
+        applied_to_knowledge_base: false,
       });
     }
 
@@ -96,7 +98,7 @@ export async function POST(request: NextRequest) {
     const updatedThread = [
       ...lead.conversation_thread,
       {
-        role: 'agent',
+        role: 'agent' as const,
         content: message,
         timestamp: new Date().toISOString(),
         emailbison_message_id: sendResult.message_id,

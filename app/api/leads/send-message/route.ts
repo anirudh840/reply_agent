@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     const updatedThread = [
       ...lead.conversation_thread,
       {
-        role: 'agent',
+        role: 'agent' as const,
         content: message,
         timestamp: new Date().toISOString(),
         emailbison_message_id: sendResult.message_id,

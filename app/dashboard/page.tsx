@@ -88,7 +88,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <Button onClick={fetchMetrics} disabled={loading}>
-          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+          <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : '')} />
           Refresh
         </Button>
       </div>
