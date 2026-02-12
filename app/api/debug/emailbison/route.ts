@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
           agent_name: agent.name,
           total_replies: allRepliesResult.data.length,
           interested_replies: interestedRepliesResult.data.length,
-          total_campaigns: campaigns.length,
+          total_campaigns: campaigns.data.length,
           all_replies_sample: allRepliesResult.data.slice(0, 5).map((r) => ({
             id: r.id,
             from_email: r.from_email,
