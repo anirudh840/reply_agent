@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
         logs.push('[Strategy 2] Strategy 1 yielded no results. Trying all non-automated replies...');
         console.log('[Test Responses] Strategy 1 yielded no results. Trying all non-automated replies...');
 
-        const result = await platformClient.getReplies({ limit: 50 });
+        const result = await platformClient.getReplies({ limit: 20 });
 
         logs.push(`[Strategy 2] Received ${result.data.length} total replies from the platform`);
         console.log('[Test Responses] Received', result.data.length, 'total replies from the platform');
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
         logs.push('[Strategy 3] Strategy 2 yielded no results. Trying any replies with content...');
         console.log('[Test Responses] Strategy 2 yielded no results. Trying any replies with content...');
 
-        const result = await platformClient.getReplies({ limit: 100 });
+        const result = await platformClient.getReplies({ limit: 20 });
 
         logs.push(`[Strategy 3] Received ${result.data.length} total replies from the platform`);
         console.log('[Test Responses] Received', result.data.length, 'total replies from the platform');
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: [],
-        message: 'No replies with content found in your EmailBison workspace. You can still create the agent and it will process replies when they arrive.',
+        message: 'No replies with content found in your workspace. You can still create the agent and it will process replies when they arrive.',
         logs,
       });
     }

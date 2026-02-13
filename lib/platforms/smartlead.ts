@@ -10,8 +10,19 @@ import type {
 } from './types';
 import { PlatformError } from './types';
 
-// Smartlead interested categories
-const INTERESTED_CATEGORIES = ['Interested', 'Meeting Request', 'Information Request'];
+// Smartlead category ID mapping (verified against API):
+// 1 = Interested
+// 2 = Meeting Booked
+// 3 = Not Interested
+// 4 = Do Not Contact
+// 5 = Wrong Person (alternate)
+// 6 = Out of Office
+// 7 = Wrong Person
+const INTERESTED_CATEGORY_IDS = [1, 2]; // Interested + Meeting Booked
+const AUTOMATED_CATEGORY_IDS = [6]; // Out of Office
+
+// Max limit enforced by Smartlead API
+const SMARTLEAD_MAX_LIMIT = 20;
 
 export class SmartleadClient implements PlatformClient {
   readonly platform: PlatformType = 'smartlead';
@@ -100,30 +111,83 @@ export class SmartleadClient implements PlatformClient {
     }
   }
 
-  private mapReply(item: any): PlatformReply {
-    // Smartlead inbox reply format
-    const lastMessage = item.email_history?.[item.email_history.length - 1];
-    const leadEmail = item.lead_email || item.to_email || '';
+  /**
+   * Fetch message history for a specific lead in a campaign.
+   * This is needed because the inbox-replies endpoint doesn't return message content.
+   */
+  private async getMessageHistory(
+    campaignId: string,
+    leadId: string
+  ): Promise<{ history: any[]; from: string; to: string }> {
+    return this.request<{ history: any[]; from: string; to: string }>(
+      `/campaigns/${campaignId}/leads/${leadId}/message-history`
+    );
+  }
+
+  /**
+   * Map a Smartlead inbox item + its message history into a PlatformReply.
+   * The inbox item has lead metadata but no message content.
+   * The message history has the actual email bodies.
+   */
+  private mapReplyWithHistory(item: any, history?: any[]): PlatformReply {
+    const leadEmail = item.lead_email || '';
+    const leadName = [item.lead_first_name, item.lead_last_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    // Find the latest REPLY message from the lead in the history
+    const replyMessages = (history || []).filter((msg: any) => msg.type === 'REPLY');
+    const lastReply = replyMessages[replyMessages.length - 1];
+
+    // Extract text body from HTML if needed
+    let textBody = '';
+    let htmlBody = '';
+    if (lastReply?.email_body) {
+      htmlBody = lastReply.email_body;
+      // Simple HTML to text extraction
+      textBody = lastReply.email_body
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .trim();
+    }
+
+    const categoryId = item.lead_category_id;
 
     return {
-      id: item.email_lead_map_id?.toString() || item.stats_id?.toString() || '',
-      campaign_id: item.campaign_id?.toString(),
+      id: item.email_lead_map_id?.toString() || '',
+      campaign_id: item.email_campaign_id?.toString(),
       from_email: leadEmail,
-      from_name: item.lead_name || item.to_name || '',
-      subject: lastMessage?.subject || item.subject || '',
-      body: lastMessage?.text_body || lastMessage?.body || item.reply_body || '',
-      html: lastMessage?.html_body || item.reply_html || '',
-      received_at: item.last_reply_time || lastMessage?.time || new Date().toISOString(),
-      status: this.mapCategory(item.lead_category || item.category),
-      is_automated: false,
+      from_name: leadName,
+      subject: lastReply?.subject || '',
+      body: textBody,
+      html: htmlBody,
+      received_at: item.last_reply_time || lastReply?.time || new Date().toISOString(),
+      status: INTERESTED_CATEGORY_IDS.includes(categoryId) ? 'interested' : 'not_interested',
+      is_automated: AUTOMATED_CATEGORY_IDS.includes(categoryId),
       is_tracked: false,
-      lead_data: item,
+      lead_data: {
+        ...item,
+        stats_id: lastReply?.stats_id,
+        reply_message_id: lastReply?.message_id,
+        reply_time: lastReply?.time,
+      },
     };
   }
 
-  private mapCategory(category?: string): string {
-    if (!category) return 'not_interested';
-    return INTERESTED_CATEGORIES.includes(category) ? 'interested' : 'not_interested';
+  /**
+   * Map a basic inbox item without message history (for quick listing).
+   */
+  private mapReplyBasic(item: any): PlatformReply {
+    return this.mapReplyWithHistory(item, []);
   }
 
   async getReplies(filters?: {
@@ -132,20 +196,19 @@ export class SmartleadClient implements PlatformClient {
     limit?: number;
     offset?: number;
   }): Promise<{ data: PlatformReply[]; total: number }> {
+    // Smartlead API constraints:
+    // - Max limit is 20
+    // - Only allowed filters: campaignId (array), emailAccountId (array), search (string)
+    // - No category filtering server-side - must filter client-side
+    // - Inbox list does NOT return message content - need separate message-history calls
+    const limit = Math.min(filters?.limit || SMARTLEAD_MAX_LIMIT, SMARTLEAD_MAX_LIMIT);
+
     const body: any = {
       offset: filters?.offset || 0,
-      limit: filters?.limit || 50,
+      limit,
       sortBy: 'REPLY_TIME_DESC',
-      fetch_message_history: true,
       filters: {},
     };
-
-    if (filters?.status === 'interested') {
-      body.filters.leadCategories = INTERESTED_CATEGORIES.reduce(
-        (acc: any, cat) => ({ ...acc, [cat]: true }),
-        {}
-      );
-    }
 
     if (filters?.campaign_id) {
       body.filters.campaignId = [parseInt(filters.campaign_id)];
@@ -163,24 +226,45 @@ export class SmartleadClient implements PlatformClient {
       RATE_LIMITS.MAX_RETRIES
     );
 
-    const data = (response.data || []).map((item) => this.mapReply(item));
+    const inboxItems = response.data || [];
 
-    // Client-side filter for interested if needed
-    const filteredData =
-      filters?.status === 'interested'
-        ? data.filter((r) => r.status === 'interested')
-        : data;
+    // Client-side filter for interested if requested
+    let filteredItems = inboxItems;
+    if (filters?.status === 'interested') {
+      filteredItems = inboxItems.filter((item) =>
+        INTERESTED_CATEGORY_IDS.includes(item.lead_category_id)
+      );
+    }
+
+    // Fetch message history for each item to get actual reply content
+    const repliesWithContent = await Promise.all(
+      filteredItems.map(async (item) => {
+        try {
+          const campaignId = item.email_campaign_id?.toString();
+          const leadId = item.email_lead_id?.toString();
+          if (campaignId && leadId) {
+            const messageHistory = await this.getMessageHistory(campaignId, leadId);
+            return this.mapReplyWithHistory(item, messageHistory.history);
+          }
+          return this.mapReplyBasic(item);
+        } catch (error) {
+          // If message history fails, return basic info without body
+          console.warn(`[Smartlead] Failed to fetch message history for lead ${item.email_lead_id}:`, error);
+          return this.mapReplyBasic(item);
+        }
+      })
+    );
 
     return {
-      data: filteredData,
-      total: filteredData.length,
+      data: repliesWithContent,
+      total: repliesWithContent.length,
     };
   }
 
   async getReply(replyId: string): Promise<PlatformReply> {
-    // Smartlead doesn't have a direct "get reply by ID" endpoint
     // Fetch from inbox and find the matching one
-    const result = await this.getReplies({ limit: 100 });
+    // Use max limit of 20 (API constraint)
+    const result = await this.getReplies({ limit: SMARTLEAD_MAX_LIMIT });
     const reply = result.data.find((r) => r.id === replyId);
     if (!reply) {
       throw new PlatformError(
@@ -270,11 +354,10 @@ export class SmartleadClient implements PlatformClient {
   async fetchRepliesForProcessing(lastSyncDate?: Date): Promise<PlatformReply[]> {
     const allReplies: PlatformReply[] = [];
     let offset = 0;
-    const limit = 50;
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.getReplies({ limit, offset });
+      const result = await this.getReplies({ limit: SMARTLEAD_MAX_LIMIT, offset });
       const filteredReplies = result.data.filter((reply) => {
         const isRelevant = reply.status === 'interested' || !reply.is_automated;
 
@@ -288,10 +371,11 @@ export class SmartleadClient implements PlatformClient {
 
       allReplies.push(...filteredReplies);
 
-      hasMore = result.data.length === limit;
-      offset += limit;
+      hasMore = result.data.length === SMARTLEAD_MAX_LIMIT;
+      offset += SMARTLEAD_MAX_LIMIT;
 
-      if (offset > 500) break;
+      // Safety limit: max 10 pages (200 replies)
+      if (offset > 200) break;
     }
 
     return allReplies;
