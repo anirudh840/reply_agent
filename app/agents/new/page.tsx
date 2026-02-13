@@ -367,6 +367,30 @@ export default function NewAgentPage() {
                 Get from: platform.openai.com/api-keys
               </p>
             </div>
+
+            {/* Webhook Information */}
+            <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-start gap-3">
+                <Globe className="h-5 w-5 text-blue-600 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-blue-900 mb-2">
+                    Webhook URL Will Be Auto-Generated
+                  </h3>
+                  <p className="text-xs text-blue-800 mb-3">
+                    After creating this agent, you'll receive a unique webhook URL to configure in your EmailBison workspace. This ensures replies are routed only to this specific agent.
+                  </p>
+                  <div className="bg-white rounded border border-blue-200 p-2">
+                    <p className="text-xs text-gray-600 mb-1 font-medium">Example webhook URL:</p>
+                    <code className="text-xs text-gray-700 font-mono break-all">
+                      https://your-domain.vercel.app/api/webhooks/[unique-id]
+                    </code>
+                  </div>
+                  <p className="text-xs text-blue-700 mt-2">
+                    ✓ You'll be able to copy and test the webhook after completing agent setup
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         );
 
