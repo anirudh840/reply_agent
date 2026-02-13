@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, ArrowRight, Loader2, Plus, Trash2, Check, Globe, TestTube2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2, Plus, Trash2, Check, Globe, TestTube2, X } from 'lucide-react';
 import { TIMEZONES } from '@/lib/constants';
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
@@ -53,6 +53,38 @@ export default function NewAgentPage() {
   const [loadingTests, setLoadingTests] = useState(false);
   const [testResultsLoaded, setTestResultsLoaded] = useState(false);
   const [editedResponses, setEditedResponses] = useState<Record<number, string>>({});
+
+  // Agent creation success
+  const [agentCreated, setAgentCreated] = useState(false);
+  const [createdAgentId, setCreatedAgentId] = useState<string>('');
+  const [webhookUrl, setWebhookUrl] = useState<string>('');
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<any>(null);
+
+  // Test Webhook Function
+  const testWebhook = async () => {
+    if (!createdAgentId) return;
+
+    setTestingWebhook(true);
+    setWebhookTestResult(null);
+
+    try {
+      const response = await fetch(`/api/agents/${createdAgentId}/test-webhook`, {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+      setWebhookTestResult(data);
+    } catch (error) {
+      console.error('Error testing webhook:', error);
+      setWebhookTestResult({
+        success: false,
+        error: 'Failed to test webhook',
+      });
+    } finally {
+      setTestingWebhook(false);
+    }
+  };
 
   // Website Extraction Function
   const extractFromWebsite = async () => {
@@ -193,8 +225,11 @@ export default function NewAgentPage() {
       const data = await response.json();
 
       if (data.success) {
-        alert('✓ Agent created successfully! Generating knowledge base embeddings in background...');
-        router.push('/agents');
+        // Capture webhook URL and agent ID
+        setCreatedAgentId(data.data.id);
+        setWebhookUrl(data.webhook_url);
+        setAgentCreated(true);
+        // Don't redirect yet - show webhook setup screen
       } else {
         alert(`Failed to create agent: ${data.error}`);
       }
@@ -905,6 +940,153 @@ export default function NewAgentPage() {
     { number: 4, name: 'Follow-ups' },
     { number: 5, name: 'Test' },
   ];
+
+  // Show success screen if agent is created
+  if (agentCreated) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="mx-auto max-w-3xl">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                  <Check className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <CardTitle>Agent Created Successfully!</CardTitle>
+                  <CardDescription>
+                    Configure your webhook to start receiving replies
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Webhook URL Section */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Globe className="h-4 w-4" />
+                  Your Webhook URL
+                </h3>
+                <div className="flex gap-2">
+                  <Input
+                    value={webhookUrl}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(webhookUrl);
+                      alert('✓ Webhook URL copied to clipboard!');
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-gray-600">
+                  Add this webhook URL to your EmailBison workspace to receive reply notifications
+                </p>
+              </div>
+
+              {/* Test Webhook Section */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <TestTube2 className="h-4 w-4" />
+                  Test Your Webhook
+                </h3>
+                <Button
+                  onClick={testWebhook}
+                  disabled={testingWebhook}
+                  variant="outline"
+                  className="w-full"
+                >
+                  {testingWebhook ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    <>
+                      <TestTube2 className="h-4 w-4 mr-2" />
+                      Test Webhook
+                    </>
+                  )}
+                </Button>
+
+                {webhookTestResult && (
+                  <div
+                    className={`mt-3 p-4 rounded-lg border ${
+                      webhookTestResult.success
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-red-50 border-red-200'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {webhookTestResult.success ? (
+                        <Check className="h-5 w-5 text-green-600 mt-0.5" />
+                      ) : (
+                        <X className="h-5 w-5 text-red-600 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <p className={`font-medium text-sm ${
+                          webhookTestResult.success ? 'text-green-900' : 'text-red-900'
+                        }`}>
+                          {webhookTestResult.success
+                            ? 'Webhook is working correctly!'
+                            : 'Webhook test failed'}
+                        </p>
+                        <p className={`text-xs mt-1 ${
+                          webhookTestResult.success ? 'text-green-700' : 'text-red-700'
+                        }`}>
+                          {webhookTestResult.message || webhookTestResult.error}
+                        </p>
+                        {webhookTestResult.status_code && (
+                          <p className="text-xs mt-1 text-gray-600">
+                            Status Code: {webhookTestResult.status_code}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-sm text-blue-900 mb-2">
+                  Next Steps:
+                </h4>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                  <li>Copy the webhook URL above</li>
+                  <li>Go to your EmailBison workspace settings</li>
+                  <li>Add this URL as a webhook endpoint</li>
+                  <li>Configure it to trigger on "reply.received" events</li>
+                  <li>Test the webhook using the button above</li>
+                </ol>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => window.open('https://mail.revgenlabs.com', '_blank')}
+                >
+                  Open EmailBison
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => router.push('/agents')}
+                >
+                  Go to Agents Dashboard
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
