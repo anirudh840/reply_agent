@@ -53,6 +53,7 @@ export default function NewAgentPage() {
   const [loadingTests, setLoadingTests] = useState(false);
   const [testResultsLoaded, setTestResultsLoaded] = useState(false);
   const [editedResponses, setEditedResponses] = useState<Record<number, string>>({});
+  const [fetchLogs, setFetchLogs] = useState<string[]>([]);
 
   // Agent creation success
   const [agentCreated, setAgentCreated] = useState(false);
@@ -60,37 +61,91 @@ export default function NewAgentPage() {
   const [webhookUrl, setWebhookUrl] = useState<string>('');
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [webhookTestResult, setWebhookTestResult] = useState<any>(null);
+  const [webhookAttempts, setWebhookAttempts] = useState(0);
+  const [webhookTestStatus, setWebhookTestStatus] = useState<string>('');
 
   // Automatically test webhook when agent is created
   useEffect(() => {
     if (createdAgentId && !webhookTestResult && !testingWebhook) {
-      testWebhook();
+      testWebhookContinuously();
     }
   }, [createdAgentId]);
 
-  // Test Webhook Function
-  const testWebhook = async () => {
+  // Continuous Webhook Testing - keeps trying for 20+ seconds
+  const testWebhookContinuously = async () => {
     if (!createdAgentId) return;
 
     setTestingWebhook(true);
     setWebhookTestResult(null);
+    setWebhookAttempts(0);
+    setWebhookTestStatus('Initializing webhook test...');
 
-    try {
-      const response = await fetch(`/api/agents/${createdAgentId}/test-webhook`, {
-        method: 'POST',
-      });
+    const maxAttempts = 10; // Try up to 10 times
+    const maxDuration = 25000; // 25 seconds total
+    const startTime = Date.now();
+    let attemptCount = 0;
 
-      const data = await response.json();
-      setWebhookTestResult(data);
-    } catch (error) {
-      console.error('Error testing webhook:', error);
-      setWebhookTestResult({
-        success: false,
-        error: 'Failed to test webhook',
-      });
-    } finally {
-      setTestingWebhook(false);
+    while (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
+      attemptCount++;
+      setWebhookAttempts(attemptCount);
+      setWebhookTestStatus(`Attempt ${attemptCount}/${maxAttempts} - Testing webhook endpoint...`);
+
+      try {
+        const response = await fetch(`/api/agents/${createdAgentId}/test-webhook`, {
+          method: 'POST',
+        });
+
+        const data = await response.json();
+
+        // If successful, stop trying
+        if (data.success) {
+          setWebhookTestResult(data);
+          setWebhookTestStatus('Webhook test completed successfully!');
+          setTestingWebhook(false);
+          return;
+        }
+
+        // If failed but got a proper JSON response, it means webhook is working but test failed
+        // This is still a valid result, so we can stop
+        if (data.error && !data.error.includes('Unexpected token')) {
+          setWebhookTestResult(data);
+          setWebhookTestStatus('Webhook responded but test failed');
+          setTestingWebhook(false);
+          return;
+        }
+
+        // If we got the HTML error, keep trying
+        console.log(`Webhook test attempt ${attemptCount} failed:`, data.error);
+        setWebhookTestStatus(`Attempt ${attemptCount} failed - retrying in ${2 * attemptCount}s...`);
+
+        // Wait before next attempt (exponential backoff: 2s, 4s, 6s, etc.)
+        if (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * attemptCount));
+        }
+      } catch (error: any) {
+        console.error(`Webhook test attempt ${attemptCount} error:`, error);
+        setWebhookTestStatus(`Attempt ${attemptCount} error - retrying...`);
+
+        // Wait before next attempt
+        if (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * attemptCount));
+        }
+      }
     }
+
+    // All attempts failed
+    setWebhookTestResult({
+      success: false,
+      error: `Webhook test failed after ${attemptCount} attempts over ${Math.round((Date.now() - startTime) / 1000)}s. The webhook endpoint may still be initializing. You can retry manually.`,
+      attempts: attemptCount,
+    });
+    setWebhookTestStatus('All attempts exhausted');
+    setTestingWebhook(false);
+  };
+
+  // Manual retry function
+  const testWebhook = async () => {
+    await testWebhookContinuously();
   };
 
   // Website Extraction Function
@@ -160,17 +215,27 @@ export default function NewAgentPage() {
 
       const data = await response.json();
 
+      // Save logs for debugging
+      if (data.logs && data.logs.length > 0) {
+        setFetchLogs(data.logs);
+        console.log('Fetch Logs:', data.logs.join('\n'));
+      }
+
       if (data.success) {
         setTestResults(data.data || []);
         setTestResultsLoaded(true);
 
         if (data.data.length === 0) {
-          alert('ℹ️ No interested replies found in your EmailBison workspace. You can still create the agent.');
+          // Show logs in alert if no results
+          const logSummary = data.logs ? '\n\nDebug Info:\n' + data.logs.join('\n') : '';
+          alert('ℹ️ No interested replies found in your EmailBison workspace. You can still create the agent.' + logSummary);
         } else {
           alert(`✓ Loaded ${data.data.length} sample replies for testing`);
         }
       } else {
-        alert(`Failed to fetch test responses: ${data.error}`);
+        // Show error with logs
+        const logSummary = data.logs ? '\n\nDebug Info:\n' + data.logs.join('\n') : '';
+        alert(`Failed to fetch test responses: ${data.error}${logSummary}`);
       }
     } catch (error) {
       console.error('Test error:', error);
@@ -1031,13 +1096,28 @@ export default function NewAgentPage() {
                   <div className="p-4 rounded-lg border border-blue-200 bg-blue-50">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
-                      <div>
+                      <div className="flex-1">
                         <p className="font-medium text-sm text-blue-900">
-                          Testing webhook...
+                          Testing webhook continuously...
                         </p>
                         <p className="text-xs text-blue-700 mt-1">
-                          Sending a test payload to verify webhook is working
+                          {webhookTestStatus}
                         </p>
+                        {webhookAttempts > 0 && (
+                          <div className="mt-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-blue-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-600 transition-all duration-300"
+                                  style={{ width: `${(webhookAttempts / 10) * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-blue-600 font-medium">
+                                {webhookAttempts}/10
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

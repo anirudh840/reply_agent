@@ -84,6 +84,7 @@ export class EmailBisonClient {
 
   /**
    * Fetch all replies with optional filters
+   * Uses POST /api/replies as per EmailBison API documentation
    */
   async getReplies(filters?: {
     status?: string;
@@ -91,38 +92,47 @@ export class EmailBisonClient {
     limit?: number;
     offset?: number;
   }): Promise<{ data: EmailBisonReply[]; total: number }> {
-    const queryParams = new URLSearchParams();
+    const endpoint = `/replies`;
 
-    // Filter for interested leads (not automated replies)
-    if (filters?.status === 'interested') {
-      queryParams.append('filters[interested][value]', '1');
-      queryParams.append('filters[automated_reply][value]', '0');
+    // Build request body according to EmailBison API spec
+    const requestBody: any = {};
+
+    // Add status filter to body (not query params)
+    if (filters?.status) {
+      requestBody.status = filters.status;
     }
-    if (filters?.campaign_id) queryParams.append('filters[campaign_id][value]', filters.campaign_id);
-    if (filters?.limit) queryParams.append('limit', filters.limit.toString());
-    if (filters?.offset) queryParams.append('offset', filters.offset.toString());
 
-    const endpoint = `/replies?${queryParams.toString()}`;
+    if (filters?.campaign_id) {
+      requestBody.campaign_id = filters.campaign_id;
+    }
+
+    if (filters?.limit) {
+      requestBody.limit = filters.limit;
+    }
+
+    if (filters?.offset) {
+      requestBody.offset = filters.offset;
+    }
 
     const response = await retryWithBackoff(
-      () => this.request<{ data: any[]; total?: number }>(endpoint),
+      () => this.request<{ data: any[]; total?: number }>(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }),
       RATE_LIMITS.MAX_RETRIES
     );
 
-    // Client-side filtering as backup to ensure only real interested leads
-    const mappedData = response.data
-      .map((reply) => this.mapApiReplyToEmailBisonReply(reply))
-      .filter((reply) => {
-        // If status filter is "interested", ensure it's truly interested and not automated
-        if (filters?.status === 'interested') {
-          return reply.status === 'interested' && !reply.is_automated;
-        }
-        return true;
-      });
+    // Map API replies to our format
+    const mappedData = response.data.map((reply) => this.mapApiReplyToEmailBisonReply(reply));
+
+    // Additional client-side filtering for interested leads (exclude automated)
+    const filteredData = filters?.status === 'interested'
+      ? mappedData.filter((reply) => reply.status === 'interested' && !reply.is_automated)
+      : mappedData;
 
     return {
-      data: mappedData,
-      total: mappedData.length,
+      data: filteredData,
+      total: filteredData.length,
     };
   }
 

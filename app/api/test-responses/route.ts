@@ -25,18 +25,24 @@ export async function POST(request: NextRequest) {
     // Create EmailBison client
     const emailbisonClient = createEmailBisonClient(emailbison_api_key);
 
+    // Collect logs to return to client
+    const logs: string[] = [];
+
     // Fetch interested replies with multiple fallback strategies
     let sampleReplies: any[] = [];
     let fetchError: string | null = null;
 
-    // Strategy 1: Try fetching interested replies
+    // Strategy 1: Try fetching interested replies from campaigns
     try {
+      logs.push('[Strategy 1] Attempting to fetch interested replies from campaigns...');
       console.log('[Test Responses] Attempting to fetch interested replies...');
+
       const result = await emailbisonClient.getReplies({
         status: 'interested',
         limit: 20,
       });
 
+      logs.push(`[Strategy 1] Received ${result.data.length} interested replies from EmailBison`);
       console.log('[Test Responses] Received', result.data.length, 'interested replies from EmailBison');
 
       // Filter out replies with empty bodies
@@ -44,8 +50,10 @@ export async function POST(request: NextRequest) {
         (reply) => reply.body && reply.body.trim() !== ''
       );
 
+      logs.push(`[Strategy 1] After filtering empty bodies: ${sampleReplies.length} replies`);
       console.log('[Test Responses] After filtering empty bodies:', sampleReplies.length, 'replies');
     } catch (emailError: any) {
+      logs.push(`[Strategy 1] Failed: ${emailError.message}`);
       console.error('[Test Responses] Strategy 1 failed:', emailError);
       fetchError = emailError.message;
     }
@@ -53,9 +61,12 @@ export async function POST(request: NextRequest) {
     // Strategy 2: If no interested replies, try fetching all non-automated replies
     if (sampleReplies.length === 0) {
       try {
+        logs.push('[Strategy 2] Strategy 1 yielded no results. Trying all non-automated replies...');
         console.log('[Test Responses] Strategy 1 yielded no results. Trying all non-automated replies...');
+
         const result = await emailbisonClient.getReplies({ limit: 50 });
 
+        logs.push(`[Strategy 2] Received ${result.data.length} total replies from EmailBison`);
         console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
 
         // Filter for non-automated replies with bodies
@@ -66,8 +77,10 @@ export async function POST(request: NextRequest) {
             reply.body.trim() !== ''
         );
 
+        logs.push(`[Strategy 2] After filtering non-automated with bodies: ${sampleReplies.length} replies`);
         console.log('[Test Responses] After filtering non-automated with bodies:', sampleReplies.length, 'replies');
       } catch (emailError: any) {
+        logs.push(`[Strategy 2] Failed: ${emailError.message}`);
         console.error('[Test Responses] Strategy 2 failed:', emailError);
         fetchError = emailError.message;
       }
@@ -76,9 +89,12 @@ export async function POST(request: NextRequest) {
     // Strategy 3: If still no results, try fetching ANY replies with content
     if (sampleReplies.length === 0) {
       try {
+        logs.push('[Strategy 3] Strategy 2 yielded no results. Trying any replies with content...');
         console.log('[Test Responses] Strategy 2 yielded no results. Trying any replies with content...');
+
         const result = await emailbisonClient.getReplies({ limit: 100 });
 
+        logs.push(`[Strategy 3] Received ${result.data.length} total replies from EmailBison`);
         console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
 
         // Filter for any replies with bodies
@@ -86,17 +102,20 @@ export async function POST(request: NextRequest) {
           (reply) => reply.body && reply.body.trim() !== ''
         );
 
+        logs.push(`[Strategy 3] After filtering for bodies: ${sampleReplies.length} replies`);
         console.log('[Test Responses] After filtering for bodies:', sampleReplies.length, 'replies');
       } catch (emailError: any) {
+        logs.push(`[Strategy 3] Failed: ${emailError.message}`);
         console.error('[Test Responses] Strategy 3 failed:', emailError);
         fetchError = emailError.message;
 
-        // All strategies failed - return error
+        // All strategies failed - return error with logs
         return NextResponse.json(
           {
             success: false,
             error: `Failed to fetch replies from EmailBison: ${fetchError}. Please verify your API key and ensure you have replies in your workspace.`,
             details: emailError,
+            logs,
           },
           { status: 400 }
         );
@@ -107,14 +126,17 @@ export async function POST(request: NextRequest) {
     sampleReplies = sampleReplies.slice(0, 5);
 
     if (sampleReplies.length === 0) {
+      logs.push('[Result] No replies with content found after all strategies');
       console.log('[Test Responses] No replies with content found after all strategies');
       return NextResponse.json({
         success: true,
         data: [],
         message: 'No replies with content found in your EmailBison workspace. You can still create the agent and it will process replies when they arrive.',
+        logs,
       });
     }
 
+    logs.push(`[Result] Successfully found ${sampleReplies.length} sample replies for testing`);
     console.log('[Test Responses] Successfully found', sampleReplies.length, 'sample replies for testing');
 
     // Generate responses for each sample
@@ -210,6 +232,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: testResults,
       message: `Generated test responses for ${testResults.length} sample replies`,
+      logs,
     });
   } catch (error: any) {
     console.error('Error in test responses:', error);
