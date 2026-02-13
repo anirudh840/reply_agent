@@ -18,16 +18,24 @@ export function generateWebhookSecret(): string {
  * Get the full webhook URL for an agent
  */
 export function getWebhookUrl(webhookId: string): string {
-  // Priority: NEXT_PUBLIC_APP_URL > VERCEL_URL > localhost
+  // Priority: VERCEL_PROJECT_PRODUCTION_URL (auto-set by Vercel in production)
+  //         > VERCEL_URL (auto-set by Vercel for each deployment)
+  //         > NEXT_PUBLIC_APP_URL (user-configured, may be stale)
+  //         > localhost
   let baseUrl: string;
 
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    baseUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   } else if (process.env.VERCEL_URL) {
     baseUrl = `https://${process.env.VERCEL_URL}`;
+  } else if (process.env.NEXT_PUBLIC_APP_URL) {
+    baseUrl = process.env.NEXT_PUBLIC_APP_URL;
   } else {
     baseUrl = 'http://localhost:3000';
   }
+
+  // Remove trailing slash if present
+  baseUrl = baseUrl.replace(/\/$/, '');
 
   return `${baseUrl}/api/webhooks/${webhookId}`;
 }
