@@ -25,36 +25,97 @@ export async function POST(request: NextRequest) {
     // Create EmailBison client
     const emailbisonClient = createEmailBisonClient(emailbison_api_key);
 
-    // Fetch interested replies (fetch more to filter out empty ones)
-    let sampleReplies;
+    // Fetch interested replies with multiple fallback strategies
+    let sampleReplies: any[] = [];
+    let fetchError: string | null = null;
+
+    // Strategy 1: Try fetching interested replies
     try {
+      console.log('[Test Responses] Attempting to fetch interested replies...');
       const result = await emailbisonClient.getReplies({
         status: 'interested',
-        limit: 20, // Fetch more to filter out empty ones
+        limit: 20,
       });
 
-      // Filter out replies with empty bodies and take first 5
-      sampleReplies = result.data
-        .filter((reply) => reply.body && reply.body.trim() !== '')
-        .slice(0, 5);
-    } catch (emailError: any) {
-      console.error('Error fetching EmailBison replies:', emailError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Failed to fetch replies from EmailBison. Please check your API key.',
-        },
-        { status: 400 }
+      console.log('[Test Responses] Received', result.data.length, 'interested replies from EmailBison');
+
+      // Filter out replies with empty bodies
+      sampleReplies = result.data.filter(
+        (reply) => reply.body && reply.body.trim() !== ''
       );
+
+      console.log('[Test Responses] After filtering empty bodies:', sampleReplies.length, 'replies');
+    } catch (emailError: any) {
+      console.error('[Test Responses] Strategy 1 failed:', emailError);
+      fetchError = emailError.message;
     }
 
+    // Strategy 2: If no interested replies, try fetching all non-automated replies
     if (sampleReplies.length === 0) {
+      try {
+        console.log('[Test Responses] Strategy 1 yielded no results. Trying all non-automated replies...');
+        const result = await emailbisonClient.getReplies({ limit: 50 });
+
+        console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
+
+        // Filter for non-automated replies with bodies
+        sampleReplies = result.data.filter(
+          (reply) =>
+            !reply.is_automated &&
+            reply.body &&
+            reply.body.trim() !== ''
+        );
+
+        console.log('[Test Responses] After filtering non-automated with bodies:', sampleReplies.length, 'replies');
+      } catch (emailError: any) {
+        console.error('[Test Responses] Strategy 2 failed:', emailError);
+        fetchError = emailError.message;
+      }
+    }
+
+    // Strategy 3: If still no results, try fetching ANY replies with content
+    if (sampleReplies.length === 0) {
+      try {
+        console.log('[Test Responses] Strategy 2 yielded no results. Trying any replies with content...');
+        const result = await emailbisonClient.getReplies({ limit: 100 });
+
+        console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
+
+        // Filter for any replies with bodies
+        sampleReplies = result.data.filter(
+          (reply) => reply.body && reply.body.trim() !== ''
+        );
+
+        console.log('[Test Responses] After filtering for bodies:', sampleReplies.length, 'replies');
+      } catch (emailError: any) {
+        console.error('[Test Responses] Strategy 3 failed:', emailError);
+        fetchError = emailError.message;
+
+        // All strategies failed - return error
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Failed to fetch replies from EmailBison: ${fetchError}. Please verify your API key and ensure you have replies in your workspace.`,
+            details: emailError,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Take only first 5 for testing
+    sampleReplies = sampleReplies.slice(0, 5);
+
+    if (sampleReplies.length === 0) {
+      console.log('[Test Responses] No replies with content found after all strategies');
       return NextResponse.json({
         success: true,
         data: [],
-        message: 'No interested replies with content found in your EmailBison workspace',
+        message: 'No replies with content found in your EmailBison workspace. You can still create the agent and it will process replies when they arrive.',
       });
     }
+
+    console.log('[Test Responses] Successfully found', sampleReplies.length, 'sample replies for testing');
 
     // Generate responses for each sample
     const testResults = [];

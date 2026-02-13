@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -60,6 +60,13 @@ export default function NewAgentPage() {
   const [webhookUrl, setWebhookUrl] = useState<string>('');
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [webhookTestResult, setWebhookTestResult] = useState<any>(null);
+
+  // Automatically test webhook when agent is created
+  useEffect(() => {
+    if (createdAgentId && !webhookTestResult && !testingWebhook) {
+      testWebhook();
+    }
+  }, [createdAgentId]);
 
   // Test Webhook Function
   const testWebhook = async () => {
@@ -1012,34 +1019,33 @@ export default function NewAgentPage() {
                 </p>
               </div>
 
-              {/* Test Webhook Section */}
+              {/* Webhook Status Section */}
               <div>
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <TestTube2 className="h-4 w-4" />
-                  Test Your Webhook
+                  Webhook Status
                 </h3>
-                <Button
-                  onClick={testWebhook}
-                  disabled={testingWebhook}
-                  variant="outline"
-                  className="w-full"
-                >
-                  {testingWebhook ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Testing...
-                    </>
-                  ) : (
-                    <>
-                      <TestTube2 className="h-4 w-4 mr-2" />
-                      Test Webhook
-                    </>
-                  )}
-                </Button>
+
+                {/* Show testing status or result */}
+                {testingWebhook && !webhookTestResult && (
+                  <div className="p-4 rounded-lg border border-blue-200 bg-blue-50">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                      <div>
+                        <p className="font-medium text-sm text-blue-900">
+                          Testing webhook...
+                        </p>
+                        <p className="text-xs text-blue-700 mt-1">
+                          Sending a test payload to verify webhook is working
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {webhookTestResult && (
                   <div
-                    className={`mt-3 p-4 rounded-lg border ${
+                    className={`p-4 rounded-lg border ${
                       webhookTestResult.success
                         ? 'bg-green-50 border-green-200'
                         : 'bg-red-50 border-red-200'
@@ -1068,6 +1074,18 @@ export default function NewAgentPage() {
                           <p className="text-xs mt-1 text-gray-600">
                             Status Code: {webhookTestResult.status_code}
                           </p>
+                        )}
+                        {!webhookTestResult.success && (
+                          <Button
+                            onClick={testWebhook}
+                            disabled={testingWebhook}
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                          >
+                            <TestTube2 className="h-3 w-3 mr-1" />
+                            Retry Test
+                          </Button>
                         )}
                       </div>
                     </div>
