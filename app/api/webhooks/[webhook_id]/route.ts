@@ -63,9 +63,9 @@ export async function POST(
     // Assuming structure: { event: 'reply.received', reply: { id, from_email, body, ... } }
     const emailbisonReply = webhookData.reply || webhookData;
 
-    // Skip if no reply data
-    if (!emailbisonReply.id || !emailbisonReply.from_email) {
-      console.warn('[Webhook] Invalid reply data received');
+    // Skip if no reply data (EmailBison uses from_email_address)
+    if (!emailbisonReply.id || (!emailbisonReply.from_email_address && !emailbisonReply.from_email)) {
+      console.warn('[Webhook] Invalid reply data received:', JSON.stringify({ id: emailbisonReply.id, from_email_address: emailbisonReply.from_email_address, from_email: emailbisonReply.from_email }));
       return NextResponse.json(
         {
           success: false,

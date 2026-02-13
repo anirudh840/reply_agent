@@ -84,7 +84,7 @@ export class EmailBisonClient {
 
   /**
    * Fetch all replies with optional filters
-   * Uses POST /api/replies as per EmailBison API documentation
+   * Uses GET /api/replies with query params
    */
   async getReplies(filters?: {
     status?: string;
@@ -92,33 +92,29 @@ export class EmailBisonClient {
     limit?: number;
     offset?: number;
   }): Promise<{ data: EmailBisonReply[]; total: number }> {
-    const endpoint = `/replies`;
+    const queryParams = new URLSearchParams();
 
-    // Build request body according to EmailBison API spec
-    const requestBody: any = {};
-
-    // Add status filter to body (not query params)
     if (filters?.status) {
-      requestBody.status = filters.status;
+      queryParams.append('status', filters.status);
     }
 
     if (filters?.campaign_id) {
-      requestBody.campaign_id = filters.campaign_id;
+      queryParams.append('campaign_id', filters.campaign_id);
     }
 
     if (filters?.limit) {
-      requestBody.limit = filters.limit;
+      queryParams.append('limit', filters.limit.toString());
     }
 
     if (filters?.offset) {
-      requestBody.offset = filters.offset;
+      queryParams.append('offset', filters.offset.toString());
     }
 
+    const qs = queryParams.toString();
+    const endpoint = `/replies${qs ? `?${qs}` : ''}`;
+
     const response = await retryWithBackoff(
-      () => this.request<{ data: any[]; total?: number }>(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      }),
+      () => this.request<{ data: any[]; meta?: any }>(endpoint),
       RATE_LIMITS.MAX_RETRIES
     );
 
@@ -132,7 +128,7 @@ export class EmailBisonClient {
 
     return {
       data: filteredData,
-      total: filteredData.length,
+      total: response.meta?.total ?? filteredData.length,
     };
   }
 

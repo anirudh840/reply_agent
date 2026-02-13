@@ -59,93 +59,65 @@ export default function NewAgentPage() {
   const [agentCreated, setAgentCreated] = useState(false);
   const [createdAgentId, setCreatedAgentId] = useState<string>('');
   const [webhookUrl, setWebhookUrl] = useState<string>('');
-  const [testingWebhook, setTestingWebhook] = useState(false);
-  const [webhookTestResult, setWebhookTestResult] = useState<any>(null);
-  const [webhookAttempts, setWebhookAttempts] = useState(0);
-  const [webhookTestStatus, setWebhookTestStatus] = useState<string>('');
+  const [webhookListening, setWebhookListening] = useState(false);
+  const [webhookReceived, setWebhookReceived] = useState<any>(null);
+  const [webhookListenStatus, setWebhookListenStatus] = useState<string>('');
+  const [webhookElapsed, setWebhookElapsed] = useState(0);
 
-  // Automatically test webhook when agent is created
+  // Start polling for webhook data when agent is created
   useEffect(() => {
-    if (createdAgentId && !webhookTestResult && !testingWebhook) {
-      testWebhookContinuously();
-    }
-  }, [createdAgentId]);
+    if (!createdAgentId || webhookReceived) return;
 
-  // Continuous Webhook Testing - keeps trying for 20+ seconds
-  const testWebhookContinuously = async () => {
-    if (!createdAgentId) return;
+    setWebhookListening(true);
+    setWebhookListenStatus('Listening for incoming webhooks...');
 
-    setTestingWebhook(true);
-    setWebhookTestResult(null);
-    setWebhookAttempts(0);
-    setWebhookTestStatus('Initializing webhook test...');
-
-    const maxAttempts = 10; // Try up to 10 times
-    const maxDuration = 25000; // 25 seconds total
     const startTime = Date.now();
-    let attemptCount = 0;
+    const listeningSince = new Date().toISOString();
 
-    while (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
-      attemptCount++;
-      setWebhookAttempts(attemptCount);
-      setWebhookTestStatus(`Attempt ${attemptCount}/${maxAttempts} - Testing webhook endpoint...`);
+    // Poll every 3 seconds for 120 seconds (2 minutes)
+    const interval = setInterval(async () => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      setWebhookElapsed(elapsed);
+
+      if (elapsed > 120) {
+        clearInterval(interval);
+        setWebhookListening(false);
+        setWebhookListenStatus('Listening timed out after 2 minutes. You can restart manually.');
+        return;
+      }
 
       try {
-        const response = await fetch(`/api/agents/${createdAgentId}/test-webhook`, {
-          method: 'POST',
-        });
-
+        const response = await fetch(
+          `/api/agents/${createdAgentId}/webhook-status?since=${encodeURIComponent(listeningSince)}`
+        );
         const data = await response.json();
 
-        // If successful, stop trying
-        if (data.success) {
-          setWebhookTestResult(data);
-          setWebhookTestStatus('Webhook test completed successfully!');
-          setTestingWebhook(false);
-          return;
+        if (data.success && data.data.has_received_data) {
+          clearInterval(interval);
+          setWebhookReceived(data.data);
+          setWebhookListening(false);
+          setWebhookListenStatus('Webhook received!');
+        } else {
+          setWebhookListenStatus(
+            `Listening for incoming webhooks... (${elapsed}s)`
+          );
         }
-
-        // If failed but got a proper JSON response, it means webhook is working but test failed
-        // This is still a valid result, so we can stop
-        if (data.error && !data.error.includes('Unexpected token')) {
-          setWebhookTestResult(data);
-          setWebhookTestStatus('Webhook responded but test failed');
-          setTestingWebhook(false);
-          return;
-        }
-
-        // If we got the HTML error, keep trying
-        console.log(`Webhook test attempt ${attemptCount} failed:`, data.error);
-        setWebhookTestStatus(`Attempt ${attemptCount} failed - retrying in ${2 * attemptCount}s...`);
-
-        // Wait before next attempt (exponential backoff: 2s, 4s, 6s, etc.)
-        if (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
-          await new Promise(resolve => setTimeout(resolve, 2000 * attemptCount));
-        }
-      } catch (error: any) {
-        console.error(`Webhook test attempt ${attemptCount} error:`, error);
-        setWebhookTestStatus(`Attempt ${attemptCount} error - retrying...`);
-
-        // Wait before next attempt
-        if (attemptCount < maxAttempts && (Date.now() - startTime) < maxDuration) {
-          await new Promise(resolve => setTimeout(resolve, 2000 * attemptCount));
-        }
+      } catch {
+        // Ignore polling errors, keep trying
       }
-    }
+    }, 3000);
 
-    // All attempts failed
-    setWebhookTestResult({
-      success: false,
-      error: `Webhook test failed after ${attemptCount} attempts over ${Math.round((Date.now() - startTime) / 1000)}s. The webhook endpoint may still be initializing. You can retry manually.`,
-      attempts: attemptCount,
-    });
-    setWebhookTestStatus('All attempts exhausted');
-    setTestingWebhook(false);
-  };
+    return () => clearInterval(interval);
+  }, [createdAgentId]);
 
-  // Manual retry function
-  const testWebhook = async () => {
-    await testWebhookContinuously();
+  // Restart webhook listener
+  const restartWebhookListener = () => {
+    setWebhookReceived(null);
+    setWebhookElapsed(0);
+    // Changing createdAgentId briefly resets the useEffect
+    const id = createdAgentId;
+    setCreatedAgentId('');
+    setTimeout(() => setCreatedAgentId(id), 100);
   };
 
   // Website Extraction Function
@@ -1084,88 +1056,92 @@ export default function NewAgentPage() {
                 </p>
               </div>
 
-              {/* Webhook Status Section */}
+              {/* Webhook Listener Section */}
               <div>
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <TestTube2 className="h-4 w-4" />
-                  Webhook Status
+                  Webhook Listener
                 </h3>
 
-                {/* Show testing status or result */}
-                {testingWebhook && !webhookTestResult && (
+                {/* Listening state - pulsing indicator */}
+                {webhookListening && !webhookReceived && (
                   <div className="p-4 rounded-lg border border-blue-200 bg-blue-50">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex h-3 w-3">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
+                      </div>
                       <div className="flex-1">
                         <p className="font-medium text-sm text-blue-900">
-                          Testing webhook continuously...
+                          Listening for incoming webhooks...
                         </p>
                         <p className="text-xs text-blue-700 mt-1">
-                          {webhookTestStatus}
+                          {webhookListenStatus}
                         </p>
-                        {webhookAttempts > 0 && (
-                          <div className="mt-2">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2 bg-blue-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-blue-600 transition-all duration-300"
-                                  style={{ width: `${(webhookAttempts / 10) * 100}%` }}
-                                />
-                              </div>
-                              <span className="text-xs text-blue-600 font-medium">
-                                {webhookAttempts}/10
-                              </span>
-                            </div>
+                        <p className="text-xs text-blue-600 mt-1">
+                          Send a test webhook from EmailBison to this URL. Listening for up to 2 minutes.
+                        </p>
+                        {/* Timer bar */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-blue-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
+                              style={{ width: `${Math.min((webhookElapsed / 120) * 100, 100)}%` }}
+                            />
                           </div>
-                        )}
+                          <span className="text-xs text-blue-500 font-mono w-12 text-right">
+                            {webhookElapsed}s
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {webhookTestResult && (
-                  <div
-                    className={`p-4 rounded-lg border ${
-                      webhookTestResult.success
-                        ? 'bg-green-50 border-green-200'
-                        : 'bg-red-50 border-red-200'
-                    }`}
-                  >
+                {/* Timed out state */}
+                {!webhookListening && !webhookReceived && webhookElapsed > 0 && (
+                  <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
                     <div className="flex items-start gap-2">
-                      {webhookTestResult.success ? (
-                        <Check className="h-5 w-5 text-green-600 mt-0.5" />
-                      ) : (
-                        <X className="h-5 w-5 text-red-600 mt-0.5" />
-                      )}
+                      <X className="h-5 w-5 text-amber-600 mt-0.5" />
                       <div className="flex-1">
-                        <p className={`font-medium text-sm ${
-                          webhookTestResult.success ? 'text-green-900' : 'text-red-900'
-                        }`}>
-                          {webhookTestResult.success
-                            ? 'Webhook is working correctly!'
-                            : 'Webhook test failed'}
+                        <p className="font-medium text-sm text-amber-900">
+                          No webhook received yet
                         </p>
-                        <p className={`text-xs mt-1 ${
-                          webhookTestResult.success ? 'text-green-700' : 'text-red-700'
-                        }`}>
-                          {webhookTestResult.message || webhookTestResult.error}
+                        <p className="text-xs text-amber-700 mt-1">
+                          No incoming webhook was detected in 2 minutes. Make sure you've added the webhook URL in EmailBison.
                         </p>
-                        {webhookTestResult.status_code && (
-                          <p className="text-xs mt-1 text-gray-600">
-                            Status Code: {webhookTestResult.status_code}
-                          </p>
-                        )}
-                        {!webhookTestResult.success && (
-                          <Button
-                            onClick={testWebhook}
-                            disabled={testingWebhook}
-                            variant="outline"
-                            size="sm"
-                            className="mt-2"
-                          >
-                            <TestTube2 className="h-3 w-3 mr-1" />
-                            Retry Test
-                          </Button>
+                        <Button
+                          onClick={restartWebhookListener}
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                        >
+                          <TestTube2 className="h-3 w-3 mr-1" />
+                          Restart Listener
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Success state - webhook received */}
+                {webhookReceived && (
+                  <div className="p-4 rounded-lg border border-green-200 bg-green-50">
+                    <div className="flex items-start gap-2">
+                      <Check className="h-5 w-5 text-green-600 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-medium text-sm text-green-900">
+                          Webhook received successfully!
+                        </p>
+                        <p className="text-xs text-green-700 mt-1">
+                          Total replies received: {webhookReceived.total_replies}
+                        </p>
+                        {webhookReceived.latest_reply && (
+                          <div className="mt-2 p-2 bg-green-100 rounded text-xs text-green-800">
+                            <p><strong>Latest:</strong> {webhookReceived.latest_reply.lead_email}</p>
+                            <p><strong>Subject:</strong> {webhookReceived.latest_reply.subject}</p>
+                            <p><strong>Status:</strong> {webhookReceived.latest_reply.status}</p>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1176,14 +1152,14 @@ export default function NewAgentPage() {
               {/* Instructions */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-semibold text-sm text-blue-900 mb-2">
-                  Next Steps:
+                  Setup Steps:
                 </h4>
                 <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                   <li>Copy the webhook URL above</li>
                   <li>Go to your EmailBison workspace settings</li>
                   <li>Add this URL as a webhook endpoint</li>
                   <li>Configure it to trigger on "reply.received" events</li>
-                  <li>Test the webhook using the button above</li>
+                  <li>The listener above will automatically detect incoming webhooks</li>
                 </ol>
               </div>
 
