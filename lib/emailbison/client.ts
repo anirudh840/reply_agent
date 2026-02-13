@@ -154,6 +154,7 @@ export class EmailBisonClient {
   }): Promise<{ success: boolean; message_id?: string }> {
     const requestBody: any = {
       message: params.message,
+      reply_all: true, // Reply to all recipients automatically
     };
 
     if (params.subject) requestBody.subject = params.subject;

@@ -23,6 +23,8 @@ export interface Agent {
   confidence_threshold: number;
   is_active: boolean;
   last_sync_at?: string;
+  webhook_id?: string; // Unique ID for this agent's webhook URL
+  webhook_secret?: string; // Secret for webhook verification (optional)
 }
 
 export interface KnowledgeBase {

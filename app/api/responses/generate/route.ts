@@ -7,6 +7,7 @@ import {
   updateInterestedLead,
 } from '@/lib/supabase/queries';
 import { generateResponse } from '@/lib/openai/generator';
+import { createEmailBisonClient } from '@/lib/emailbison/client';
 import type { ConversationMessage } from '@/lib/types';
 import { CONFIDENCE_THRESHOLDS } from '@/lib/constants';
 
@@ -75,6 +76,11 @@ export async function POST(request: NextRequest) {
       conversationHistory,
     });
 
+    // Determine if approval is needed
+    const needsApproval =
+      agent.mode === 'human_in_loop' ||
+      generatedResponse.confidence_score <= agent.confidence_threshold;
+
     // Create or update interested lead
     if (!interestedLead) {
       // Create new interested lead
@@ -88,12 +94,8 @@ export async function POST(request: NextRequest) {
         conversation_thread: conversationHistory,
         last_response_generated: generatedResponse.content,
         response_confidence_score: generatedResponse.confidence_score,
-        needs_approval:
-          generatedResponse.confidence_score <= agent.confidence_threshold,
-        approval_reason:
-          generatedResponse.confidence_score <= agent.confidence_threshold
-            ? generatedResponse.reasoning
-            : undefined,
+        needs_approval: needsApproval,
+        approval_reason: needsApproval ? generatedResponse.reasoning : undefined,
         followup_stage: 0,
         last_lead_reply_at: reply.received_at,
         conversation_status: 'active',
@@ -104,15 +106,51 @@ export async function POST(request: NextRequest) {
         conversation_thread: conversationHistory,
         last_response_generated: generatedResponse.content,
         response_confidence_score: generatedResponse.confidence_score,
-        needs_approval:
-          generatedResponse.confidence_score <= agent.confidence_threshold ||
-          agent.mode === 'human_in_loop',
-        approval_reason:
-          generatedResponse.confidence_score <= agent.confidence_threshold
-            ? generatedResponse.reasoning
-            : undefined,
+        needs_approval: needsApproval,
+        approval_reason: needsApproval ? generatedResponse.reasoning : undefined,
         last_lead_reply_at: reply.received_at,
       });
+    }
+
+    let autoSendResult: { sent: boolean; error?: string } = { sent: false };
+
+    // Auto-send if eligible (fully automated + high confidence)
+    if (!needsApproval && agent.mode === 'fully_automated') {
+      try {
+        const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+
+        const sendResult = await emailbisonClient.sendReply({
+          replyId: reply.emailbison_reply_id,
+          message: generatedResponse.content,
+        });
+
+        // Update lead record with sent status
+        const updatedThread: ConversationMessage[] = [
+          ...interestedLead.conversation_thread,
+          {
+            role: 'agent',
+            content: generatedResponse.content,
+            timestamp: new Date().toISOString(),
+            emailbison_message_id: sendResult.message_id,
+          },
+        ];
+
+        await updateInterestedLead(interestedLead.id, {
+          conversation_thread: updatedThread,
+          last_response_sent: generatedResponse.content,
+          last_response_sent_at: new Date().toISOString(),
+          needs_approval: false,
+        });
+
+        autoSendResult = { sent: true };
+        console.log(`Auto-sent response to ${reply.lead_email} via generate endpoint`);
+      } catch (sendError: any) {
+        console.error('Error auto-sending reply:', sendError);
+        autoSendResult = {
+          sent: false,
+          error: sendError.message || 'Failed to auto-send',
+        };
+      }
     }
 
     return NextResponse.json({
@@ -121,15 +159,15 @@ export async function POST(request: NextRequest) {
         lead_id: interestedLead.id,
         response: generatedResponse.content,
         confidence_score: generatedResponse.confidence_score,
-        needs_approval:
-          generatedResponse.confidence_score <= agent.confidence_threshold ||
-          agent.mode === 'human_in_loop',
+        needs_approval: needsApproval,
         reasoning: generatedResponse.reasoning,
-        auto_send_eligible:
-          generatedResponse.confidence_score > agent.confidence_threshold &&
-          agent.mode === 'fully_automated',
+        auto_send_eligible: !needsApproval && agent.mode === 'fully_automated',
+        auto_sent: autoSendResult.sent,
+        auto_send_error: autoSendResult.error,
       },
-      message: 'Response generated successfully',
+      message: autoSendResult.sent
+        ? 'Response generated and auto-sent successfully'
+        : 'Response generated successfully',
     });
   } catch (error: any) {
     console.error('Error generating response:', error);

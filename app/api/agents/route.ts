@@ -3,6 +3,7 @@ import { createAgent, getAgents } from '@/lib/supabase/queries';
 import { generateKnowledgeBaseEmbeddings } from '@/lib/openai/embeddings';
 import { createEmailBisonClient } from '@/lib/emailbison/client';
 import { createOpenAIClient } from '@/lib/openai/client';
+import { generateWebhookId, getWebhookUrl } from '@/lib/webhooks';
 import type { Agent } from '@/lib/types';
 
 /**
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate unique webhook ID for this agent
+    const webhookId = generateWebhookId();
+
     // Create agent in database
     const agentData: Omit<Agent, 'id' | 'created_at' | 'updated_at'> = {
       name: body.name,
@@ -122,6 +126,8 @@ export async function POST(request: NextRequest) {
       confidence_threshold: body.confidence_threshold || 6.0,
       is_active: true,
       last_sync_at: undefined,
+      webhook_id: webhookId,
+      webhook_secret: undefined, // Can be added later for verification
     };
 
     const agent = await createAgent(agentData);
@@ -136,11 +142,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Generate webhook URL for the response
+    const webhookUrl = getWebhookUrl(agent.webhook_id!);
+
     return NextResponse.json(
       {
         success: true,
         data: agent,
-        message: 'Agent created successfully. Generating knowledge base embeddings...',
+        webhook_url: webhookUrl,
+        message: 'Agent created successfully. Configure the webhook URL in your EmailBison workspace.',
       },
       { status: 201 }
     );
