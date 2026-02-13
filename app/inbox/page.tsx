@@ -77,6 +77,10 @@ export default function InboxPage() {
   // Lead sidebar collapsed state
   const [leadSidebarCollapsed, setLeadSidebarCollapsed] = useState(false);
 
+  // Thread display options
+  const [threadOrder, setThreadOrder] = useState<'newest' | 'oldest'>('oldest');
+  const [threadExpanded, setThreadExpanded] = useState(false);
+
   useEffect(() => {
     fetchAgents();
     fetchLeads();
@@ -755,48 +759,162 @@ export default function InboxPage() {
 
               {/* Email Thread - Individual Email Cards */}
               <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-                <div className="space-y-3">
-                  {selectedLead.conversation_thread.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`rounded-lg border shadow-sm bg-white p-4`}
-                    >
-                      {/* Email Header */}
-                      <div className="flex items-start justify-between mb-3 pb-3 border-b border-gray-100">
-                        <div className="flex items-start gap-3 flex-1">
-                          <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                            message.role === 'lead' ? 'bg-gray-200' : 'bg-blue-100'
-                          }`}>
-                            {message.role === 'lead' ? (
-                              <User className="h-5 w-5 text-gray-600" />
-                            ) : (
-                              <Bot className="h-5 w-5 text-blue-600" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-sm font-semibold text-gray-900">
-                                {message.role === 'lead'
-                                  ? selectedLead.lead_name || 'Lead'
-                                  : getAgent(selectedLead.agent_id)?.name || 'AI Agent'}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {new Date(message.timestamp).toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              {message.role === 'lead' ? `<${selectedLead.lead_email}>` : 'AI Response'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                {/* Thread Summary Bar */}
+                <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className="font-semibold text-gray-900">
+                      {selectedLead.conversation_thread.length} {selectedLead.conversation_thread.length === 1 ? 'message' : 'messages'}
+                    </span>
+                    <span className="text-gray-500">•</span>
+                    <span className="text-gray-600">
+                      Started {formatRelativeTime(selectedLead.conversation_thread[0]?.timestamp || selectedLead.created_at)}
+                    </span>
+                    {selectedLead.conversation_thread.length > 1 && (
+                      <>
+                        <span className="text-gray-500">•</span>
+                        <span className="text-gray-600">
+                          Last reply {formatRelativeTime(selectedLead.conversation_thread[selectedLead.conversation_thread.length - 1]?.timestamp)}
+                        </span>
+                      </>
+                    )}
+                    <span className="text-gray-500">•</span>
+                    <Badge variant={selectedLead.conversation_status === 'active' ? 'default' : 'secondary'} className="text-xs">
+                      {selectedLead.conversation_status}
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setThreadOrder(threadOrder === 'oldest' ? 'newest' : 'oldest')}
+                    className="text-xs"
+                  >
+                    {threadOrder === 'oldest' ? 'Oldest First' : 'Newest First'}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </div>
 
-                      {/* Email Body */}
-                      <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                        {message.content}
-                      </div>
+                {/* Thread Messages with Timeline */}
+                <div className="relative">
+                  {/* Timeline Connector */}
+                  <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-300" />
+
+                  <div className="space-y-3 relative">
+                    {(() => {
+                      // Sort messages based on order preference
+                      const sortedMessages = threadOrder === 'oldest'
+                        ? [...selectedLead.conversation_thread]
+                        : [...selectedLead.conversation_thread].reverse();
+
+                      // Handle collapse for long threads
+                      const shouldCollapse = sortedMessages.length > 5 && !threadExpanded;
+                      const displayMessages = shouldCollapse
+                        ? [
+                            ...sortedMessages.slice(0, 2),
+                            null, // Placeholder for "show more" button
+                            ...sortedMessages.slice(-2),
+                          ]
+                        : sortedMessages;
+
+                      return displayMessages.map((message, index) => {
+                        // Show "expand" button
+                        if (message === null) {
+                          return (
+                            <div key="expand" className="flex justify-center py-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setThreadExpanded(true)}
+                                className="text-xs"
+                              >
+                                Show {sortedMessages.length - 4} more messages
+                              </Button>
+                            </div>
+                          );
+                        }
+
+                        const isLead = message.role === 'lead';
+
+                        return (
+                          <div key={index} className="flex gap-3 relative z-10">
+                            {/* Timeline Node */}
+                            <div className={`flex-shrink-0 h-12 w-12 rounded-full border-4 border-gray-50 flex items-center justify-center ${
+                              isLead ? 'bg-blue-100' : 'bg-gray-200'
+                            }`}>
+                              {isLead ? (
+                                <User className="h-5 w-5 text-blue-600" />
+                              ) : (
+                                <Bot className="h-5 w-5 text-gray-600" />
+                              )}
+                            </div>
+
+                            {/* Message Card */}
+                            <div className="flex-1">
+                              <div className="rounded-lg border shadow-sm bg-white overflow-hidden">
+                                {/* Colored Header */}
+                                <div className={`p-3 ${isLead ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-sm font-semibold text-gray-900">
+                                          {isLead ? 'From:' : 'From:'} {
+                                            isLead
+                                              ? selectedLead.lead_name || 'Lead'
+                                              : getAgent(selectedLead.agent_id)?.name || 'AI Agent'
+                                          }
+                                        </span>
+                                        <Badge variant={isLead ? 'default' : 'secondary'} className="text-xs">
+                                          {isLead ? 'Inbound' : 'Outbound'}
+                                        </Badge>
+                                      </div>
+                                      <div className="text-xs text-gray-600 space-y-0.5">
+                                        <div>
+                                          <span className="font-medium">To:</span> {
+                                            isLead
+                                              ? getAgent(selectedLead.agent_id)?.name || 'Agent'
+                                              : selectedLead.lead_email
+                                          }
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">Date:</span> {new Date(message.timestamp).toLocaleString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            year: 'numeric',
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Message Body */}
+                                <div className="p-4">
+                                  <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                                    {message.content}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  {/* Show "Collapse" button if expanded */}
+                  {threadExpanded && selectedLead.conversation_thread.length > 5 && (
+                    <div className="flex justify-center py-3 mt-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setThreadExpanded(false)}
+                        className="text-xs"
+                      >
+                        Collapse thread
+                      </Button>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
 
