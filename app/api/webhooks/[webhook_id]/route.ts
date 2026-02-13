@@ -11,6 +11,73 @@ import {
 } from '@/lib/supabase/queries';
 
 /**
+ * Normalize the EmailBison webhook payload into a consistent format.
+ *
+ * Actual EmailBison payload structure:
+ * {
+ *   "event": { "type": "LEAD_REPLIED", "name": "Lead Replied", ... },
+ *   "data": {
+ *     "reply": { id, uuid, email_subject, text_body, from_email_address, from_name, ... },
+ *     "lead": { id, email, first_name, last_name, title, company, ... },
+ *     "campaign": { id, name },
+ *     "campaign_event": { ... },
+ *     "scheduled_email": { ... },
+ *     "sender_email": { ... }
+ *   }
+ * }
+ */
+function normalizeWebhookPayload(webhookData: any) {
+  // Actual EmailBison format: data.reply
+  if (webhookData.data?.reply) {
+    const reply = webhookData.data.reply;
+    const lead = webhookData.data.lead || {};
+    const campaign = webhookData.data.campaign || {};
+    const event = webhookData.event || {};
+
+    return {
+      id: reply.id?.toString() || reply.uuid,
+      uuid: reply.uuid,
+      from_email_address: reply.from_email_address || lead.email,
+      from_name: reply.from_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim(),
+      subject: reply.email_subject || reply.subject,
+      text_body: reply.text_body,
+      html_body: reply.html_body,
+      date_received: reply.date_received || reply.created_at,
+      interested: reply.interested,
+      automated_reply: reply.automated_reply,
+      tracked_reply: reply.tracked_reply || (reply.type === 'Tracked Reply'),
+      campaign_id: campaign.id?.toString() || reply.campaign_id?.toString(),
+      // Additional metadata
+      lead_data: {
+        ...lead,
+        reply_raw: reply,
+        campaign,
+        event_type: event.type,
+        workspace_name: event.workspace_name,
+      },
+    };
+  }
+
+  // Fallback: legacy format where reply is at top level
+  const reply = webhookData.reply || webhookData;
+  return {
+    id: reply.id?.toString() || reply.uuid,
+    uuid: reply.uuid,
+    from_email_address: reply.from_email_address || reply.from_email,
+    from_name: reply.from_name,
+    subject: reply.subject || reply.email_subject,
+    text_body: reply.text_body || reply.body,
+    html_body: reply.html_body || reply.html,
+    date_received: reply.date_received || reply.received_at || reply.created_at,
+    interested: reply.interested,
+    automated_reply: reply.automated_reply || reply.is_automated,
+    tracked_reply: reply.tracked_reply,
+    campaign_id: reply.campaign_id?.toString(),
+    lead_data: reply,
+  };
+}
+
+/**
  * POST /api/webhooks/[webhook_id]
  * Dynamic webhook endpoint for EmailBison - routes to specific agent based on webhook_id
  */
@@ -47,25 +114,29 @@ export async function POST(
       );
     }
 
-    // Parse EmailBison webhook payload
+    // Parse and normalize the webhook payload
     const webhookData = await request.json();
+    const reply = normalizeWebhookPayload(webhookData);
 
     console.log(
-      `[Webhook] Received webhook for agent ${agent.name} (${agent.id}):`,
+      `[Webhook] Received for agent ${agent.name} (${agent.id}):`,
       {
         webhook_id,
-        event_type: webhookData.event || 'unknown',
-        reply_id: webhookData.reply?.id,
+        event_type: webhookData.event?.type || webhookData.event || 'unknown',
+        reply_id: reply.id,
+        from: reply.from_email_address,
+        subject: reply.subject,
       }
     );
 
-    // EmailBison webhook format may vary - adapt based on actual payload structure
-    // Assuming structure: { event: 'reply.received', reply: { id, from_email, body, ... } }
-    const emailbisonReply = webhookData.reply || webhookData;
-
-    // Skip if no reply data (EmailBison uses from_email_address)
-    if (!emailbisonReply.id || (!emailbisonReply.from_email_address && !emailbisonReply.from_email)) {
-      console.warn('[Webhook] Invalid reply data received:', JSON.stringify({ id: emailbisonReply.id, from_email_address: emailbisonReply.from_email_address, from_email: emailbisonReply.from_email }));
+    // Skip if no reply data
+    if (!reply.id || !reply.from_email_address) {
+      console.warn('[Webhook] Invalid reply data:', {
+        id: reply.id,
+        from_email_address: reply.from_email_address,
+        payload_keys: Object.keys(webhookData),
+        data_keys: webhookData.data ? Object.keys(webhookData.data) : 'no data key',
+      });
       return NextResponse.json(
         {
           success: false,
@@ -76,18 +147,19 @@ export async function POST(
     }
 
     // Skip automated replies
-    if (emailbisonReply.automated_reply || emailbisonReply.is_automated) {
-      console.log(`[Webhook] Skipping automated reply ${emailbisonReply.id}`);
+    if (reply.automated_reply) {
+      console.log(`[Webhook] Skipping automated reply ${reply.id}`);
       return NextResponse.json({
         success: true,
         message: 'Automated reply skipped',
       });
     }
 
-    // Check if already processed
-    const existing = await getReplyByEmailBisonId(emailbisonReply.id);
-    if (existing) {
-      console.log(`[Webhook] Reply ${emailbisonReply.id} already processed`);
+    // Check if already processed (use both id and uuid)
+    const existingById = await getReplyByEmailBisonId(reply.id);
+    const existingByUuid = reply.uuid ? await getReplyByEmailBisonId(reply.uuid) : null;
+    if (existingById || existingByUuid) {
+      console.log(`[Webhook] Reply ${reply.id} already processed`);
       return NextResponse.json({
         success: true,
         message: 'Reply already processed',
@@ -97,9 +169,9 @@ export async function POST(
     // Categorize the reply using AI
     const categorization = await categorizeReply({
       reply: {
-        reply_body: emailbisonReply.text_body || emailbisonReply.body || '',
-        reply_subject: emailbisonReply.subject || '',
-        original_status: emailbisonReply.interested ? 'interested' : 'not_interested',
+        reply_body: reply.text_body || '',
+        reply_subject: reply.subject || '',
+        original_status: reply.interested ? 'interested' : 'not_interested',
       },
       openaiApiKey: agent.openai_api_key,
     });
@@ -107,18 +179,18 @@ export async function POST(
     // Store reply in database
     const replyRecord = await createReply({
       agent_id: agent.id,
-      emailbison_reply_id: emailbisonReply.id.toString(),
-      emailbison_campaign_id: emailbisonReply.campaign_id?.toString(),
-      lead_email: emailbisonReply.from_email_address || emailbisonReply.from_email,
-      lead_name: emailbisonReply.from_name,
-      lead_metadata: emailbisonReply,
-      reply_subject: emailbisonReply.subject,
-      reply_body: emailbisonReply.text_body || emailbisonReply.body || '',
-      reply_html: emailbisonReply.html_body || emailbisonReply.html,
-      received_at: emailbisonReply.date_received || emailbisonReply.received_at || new Date().toISOString(),
-      original_status: emailbisonReply.interested ? 'interested' : 'not_interested',
-      is_automated_original: emailbisonReply.automated_reply || false,
-      is_tracked_original: emailbisonReply.tracked_reply || false,
+      emailbison_reply_id: reply.id,
+      emailbison_campaign_id: reply.campaign_id,
+      lead_email: reply.from_email_address,
+      lead_name: reply.from_name,
+      lead_metadata: reply.lead_data,
+      reply_subject: reply.subject,
+      reply_body: reply.text_body || '',
+      reply_html: reply.html_body,
+      received_at: reply.date_received || new Date().toISOString(),
+      original_status: reply.interested ? 'interested' : 'not_interested',
+      is_automated_original: reply.automated_reply || false,
+      is_tracked_original: reply.tracked_reply || false,
       corrected_status: categorization.is_truly_interested ? 'interested' : 'not_interested',
       is_truly_interested: categorization.is_truly_interested,
       ai_confidence_score: categorization.confidence_score,
@@ -135,9 +207,9 @@ export async function POST(
     if (categorization.is_truly_interested) {
       // Generate response for interested lead
       const generatedResponse = await generateResponse({
-        leadEmail: emailbisonReply.from_email_address || emailbisonReply.from_email,
-        leadName: emailbisonReply.from_name,
-        leadMessage: emailbisonReply.text_body || emailbisonReply.body || '',
+        leadEmail: reply.from_email_address,
+        leadName: reply.from_name,
+        leadMessage: reply.text_body || '',
         agent,
         conversationHistory: [],
       });
@@ -151,20 +223,20 @@ export async function POST(
       const interestedLead = await createInterestedLead({
         agent_id: agent.id,
         initial_reply_id: replyRecord.id,
-        lead_email: emailbisonReply.from_email_address || emailbisonReply.from_email,
-        lead_name: emailbisonReply.from_name,
-        lead_metadata: emailbisonReply,
+        lead_email: reply.from_email_address,
+        lead_name: reply.from_name,
+        lead_metadata: reply.lead_data,
         conversation_thread: [
           {
             role: 'lead' as const,
-            content: emailbisonReply.text_body || emailbisonReply.body || '',
-            timestamp: emailbisonReply.date_received || emailbisonReply.received_at || new Date().toISOString(),
-            emailbison_message_id: emailbisonReply.id.toString(),
+            content: reply.text_body || '',
+            timestamp: reply.date_received || new Date().toISOString(),
+            emailbison_message_id: reply.id,
           },
         ],
         last_response_generated: generatedResponse.content,
         response_confidence_score: generatedResponse.confidence_score,
-        last_lead_reply_at: emailbisonReply.date_received || emailbisonReply.received_at || new Date().toISOString(),
+        last_lead_reply_at: reply.date_received || new Date().toISOString(),
         needs_approval: needsApproval,
         conversation_status: 'active',
         followup_stage: 0,
@@ -178,7 +250,7 @@ export async function POST(
           const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
 
           const sendResult = await emailbisonClient.sendReply({
-            replyId: emailbisonReply.id.toString(),
+            replyId: reply.id,
             message: generatedResponse.content,
           });
 
@@ -200,7 +272,7 @@ export async function POST(
             needs_approval: false,
           });
 
-          console.log(`[Webhook] Auto-sent response to ${emailbisonReply.from_email_address || emailbisonReply.from_email}`);
+          console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}`);
         } catch (sendError) {
           console.error('[Webhook] Error sending auto-reply:', sendError);
         }
