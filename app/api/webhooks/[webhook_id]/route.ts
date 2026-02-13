@@ -16,10 +16,10 @@ import {
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { webhook_id: string } }
+  { params }: { params: Promise<{ webhook_id: string }> }
 ) {
   try {
-    const { webhook_id } = params;
+    const { webhook_id } = await params;
 
     // Find agent by webhook_id
     const agents = await getAllAgents();
