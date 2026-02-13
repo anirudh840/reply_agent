@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, ArrowRight, Loader2, Plus, Trash2, Check, Globe, TestTube2, X } from 'lucide-react';
-import { TIMEZONES } from '@/lib/constants';
+import { TIMEZONES, PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
+import type { PlatformType } from '@/lib/platforms/types';
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
 
@@ -19,7 +20,9 @@ export default function NewAgentPage() {
   // Step 1: Mode Selection
   const [mode, setMode] = useState<'fully_automated' | 'human_in_loop'>('human_in_loop');
 
-  // Step 2: API Keys
+  // Step 2: Platform & API Keys
+  const [platform, setPlatform] = useState<PlatformType>('emailbison');
+  const [platformInstanceUrl, setPlatformInstanceUrl] = useState('');
   const [name, setName] = useState('');
   const [emailbisonApiKey, setEmailbisonApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
@@ -174,6 +177,8 @@ export default function NewAgentPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          platform,
+          platform_instance_url: platform === 'emailbison' && platformInstanceUrl ? platformInstanceUrl : undefined,
           emailbison_api_key: emailbisonApiKey,
           openai_api_key: openaiApiKey,
           knowledge_base: {
@@ -200,7 +205,7 @@ export default function NewAgentPage() {
         if (data.data.length === 0) {
           // Show logs in alert if no results
           const logSummary = data.logs ? '\n\nDebug Info:\n' + data.logs.join('\n') : '';
-          alert('ℹ️ No interested replies found in your EmailBison workspace. You can still create the agent.' + logSummary);
+          alert('No interested replies found in your workspace. You can still create the agent.' + logSummary);
         } else {
           alert(`✓ Loaded ${data.data.length} sample replies for testing`);
         }
@@ -225,6 +230,8 @@ export default function NewAgentPage() {
         name,
         mode,
         timezone,
+        platform,
+        platform_instance_url: platform === 'emailbison' && platformInstanceUrl ? platformInstanceUrl : undefined,
         emailbison_api_key: emailbisonApiKey,
         openai_api_key: openaiApiKey,
         knowledge_base: {
@@ -364,10 +371,41 @@ export default function NewAgentPage() {
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="mb-2 text-2xl font-bold">API Keys & Configuration</h2>
+              <h2 className="mb-2 text-2xl font-bold">Platform & API Keys</h2>
               <p className="text-gray-600">
-                Connect your EmailBison and OpenAI accounts
+                Choose your outreach platform and connect your accounts
               </p>
+            </div>
+
+            {/* Platform Selection */}
+            <div>
+              <label className="mb-3 block text-sm font-medium">Outreach Platform</label>
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  { id: 'emailbison' as PlatformType, name: 'EmailBison', desc: 'Custom cold email platform' },
+                  { id: 'smartlead' as PlatformType, name: 'Smartlead', desc: 'AI-powered cold outreach' },
+                  { id: 'instantly' as PlatformType, name: 'Instantly.ai', desc: 'Cold email at scale' },
+                ]).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPlatform(p.id)}
+                    className={`rounded-lg border-2 p-4 text-left transition-all ${
+                      platform === p.id
+                        ? 'border-primary bg-primary/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold">{p.name}</h3>
+                      {platform === p.id && (
+                        <Badge variant="default" className="text-xs">Selected</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600">{p.desc}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -382,19 +420,38 @@ export default function NewAgentPage() {
 
             <div>
               <label className="mb-2 block text-sm font-medium">
-                EmailBison API Key
+                {PLATFORM_DISPLAY_NAMES[platform] || 'Platform'} API Key
               </label>
               <Input
                 required
                 type="password"
-                placeholder="Enter your EmailBison API key"
+                placeholder={`Enter your ${PLATFORM_DISPLAY_NAMES[platform] || 'platform'} API key`}
                 value={emailbisonApiKey}
                 onChange={(e) => setEmailbisonApiKey(e.target.value)}
               />
               <p className="mt-1 text-xs text-gray-500">
-                Get from: mail.revgenlabs.com → Settings → Developer API
+                {platform === 'emailbison' && 'Get from: mail.revgenlabs.com → Settings → Developer API'}
+                {platform === 'smartlead' && 'Get from: Smartlead dashboard → Settings → API'}
+                {platform === 'instantly' && 'Get from: Instantly.ai → Settings → Integrations → API'}
               </p>
             </div>
+
+            {/* Instance URL - only for EmailBison */}
+            {platform === 'emailbison' && (
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Instance URL (Optional)
+                </label>
+                <Input
+                  placeholder="e.g., mail.revgenlabs.com (leave blank for default)"
+                  value={platformInstanceUrl}
+                  onChange={(e) => setPlatformInstanceUrl(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Only needed if you use a custom EmailBison instance. Default: mail.revgenlabs.com
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="mb-2 block text-sm font-medium">
@@ -421,7 +478,7 @@ export default function NewAgentPage() {
                     Webhook URL Will Be Auto-Generated
                   </h3>
                   <p className="text-xs text-blue-800 mb-3">
-                    After creating this agent, you'll receive a unique webhook URL to configure in your EmailBison workspace. This ensures replies are routed only to this specific agent.
+                    After creating this agent, you'll receive a unique webhook URL to configure in your {PLATFORM_DISPLAY_NAMES[platform] || 'platform'} workspace. This ensures replies are routed only to this specific agent.
                   </p>
                   <div className="bg-white rounded border border-blue-200 p-2">
                     <p className="text-xs text-gray-600 mb-1 font-medium">Example webhook URL:</p>
@@ -430,7 +487,7 @@ export default function NewAgentPage() {
                     </code>
                   </div>
                   <p className="text-xs text-blue-700 mt-2">
-                    ✓ You'll be able to copy and test the webhook after completing agent setup
+                    You'll be able to copy and test the webhook after completing agent setup
                   </p>
                 </div>
               </div>
@@ -817,7 +874,7 @@ export default function NewAgentPage() {
             <div>
               <h2 className="mb-2 text-2xl font-bold">Test with Sample Replies</h2>
               <p className="text-gray-600">
-                Test your agent with real interested replies from EmailBison
+                Test your agent with real interested replies from your platform
               </p>
             </div>
 
@@ -837,7 +894,7 @@ export default function NewAgentPage() {
                 <CardContent className="p-6">
                   <p className="mb-4 text-sm text-gray-600">
                     Click below to fetch up to 5 sample interested replies from your
-                    EmailBison workspace. You'll be able to review and edit the
+                    {PLATFORM_DISPLAY_NAMES[platform] || 'platform'} workspace. You'll be able to review and edit the
                     AI-generated responses before creating the agent.
                   </p>
                   <Button
@@ -869,7 +926,7 @@ export default function NewAgentPage() {
                   No Interested Replies Found
                 </h3>
                 <p className="text-sm text-gray-600">
-                  Your EmailBison workspace doesn't have any interested replies yet.
+                  Your workspace doesn't have any interested replies yet.
                   You can still create the agent and test it later when replies come in.
                 </p>
               </Card>
@@ -1003,7 +1060,7 @@ export default function NewAgentPage() {
 
   const steps = [
     { number: 1, name: 'Mode' },
-    { number: 2, name: 'API Keys' },
+    { number: 2, name: 'Platform' },
     { number: 3, name: 'Knowledge' },
     { number: 4, name: 'Follow-ups' },
     { number: 5, name: 'Test' },
@@ -1052,7 +1109,7 @@ export default function NewAgentPage() {
                   </Button>
                 </div>
                 <p className="mt-2 text-xs text-gray-600">
-                  Add this webhook URL to your EmailBison workspace to receive reply notifications
+                  Add this webhook URL to your {PLATFORM_DISPLAY_NAMES[platform] || 'platform'} workspace to receive reply notifications
                 </p>
               </div>
 
@@ -1079,7 +1136,7 @@ export default function NewAgentPage() {
                           {webhookListenStatus}
                         </p>
                         <p className="text-xs text-blue-600 mt-1">
-                          Send a test webhook from EmailBison to this URL. Listening for up to 2 minutes.
+                          Send a test webhook from {PLATFORM_DISPLAY_NAMES[platform] || 'your platform'} to this URL. Listening for up to 2 minutes.
                         </p>
                         {/* Timer bar */}
                         <div className="mt-2 flex items-center gap-2">
@@ -1108,7 +1165,7 @@ export default function NewAgentPage() {
                           No webhook received yet
                         </p>
                         <p className="text-xs text-amber-700 mt-1">
-                          No incoming webhook was detected in 2 minutes. Make sure you've added the webhook URL in EmailBison.
+                          No incoming webhook was detected in 2 minutes. Make sure you've added the webhook URL in {PLATFORM_DISPLAY_NAMES[platform] || 'your platform'}.
                         </p>
                         <Button
                           onClick={restartWebhookListener}
@@ -1156,7 +1213,7 @@ export default function NewAgentPage() {
                 </h4>
                 <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                   <li>Copy the webhook URL above</li>
-                  <li>Go to your EmailBison workspace settings</li>
+                  <li>Go to your {PLATFORM_DISPLAY_NAMES[platform] || 'platform'} workspace settings</li>
                   <li>Add this URL as a webhook endpoint</li>
                   <li>Configure it to trigger on "reply.received" events</li>
                   <li>The listener above will automatically detect incoming webhooks</li>
@@ -1168,9 +1225,16 @@ export default function NewAgentPage() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => window.open('https://mail.revgenlabs.com', '_blank')}
+                  onClick={() => {
+                    const urls: Record<string, string> = {
+                      emailbison: platformInstanceUrl ? `https://${platformInstanceUrl}` : 'https://mail.revgenlabs.com',
+                      smartlead: 'https://app.smartlead.ai',
+                      instantly: 'https://app.instantly.ai',
+                    };
+                    window.open(urls[platform] || '#', '_blank');
+                  }}
                 >
-                  Open EmailBison
+                  Open {PLATFORM_DISPLAY_NAMES[platform] || 'Platform'}
                 </Button>
                 <Button
                   className="flex-1"

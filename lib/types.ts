@@ -2,6 +2,9 @@
 // TYPE DEFINITIONS FOR REPLY AGENT
 // =====================================================
 
+import type { PlatformType } from './platforms/types';
+export type { PlatformType } from './platforms/types';
+
 // Agent Types
 export type AgentMode = 'fully_automated' | 'human_in_loop';
 
@@ -12,7 +15,9 @@ export interface Agent {
   name: string;
   mode: AgentMode;
   timezone: string;
-  emailbison_api_key: string;
+  platform: PlatformType;
+  platform_instance_url?: string;
+  emailbison_api_key: string; // Stores the platform API key (column name kept for backward compat)
   emailbison_workspace_id?: string;
   openai_api_key: string;
   knowledge_base: KnowledgeBase;
@@ -174,34 +179,17 @@ export interface FeedbackLog {
   applied_to_knowledge_base: boolean;
 }
 
-// EmailBison API Types
-export interface EmailBisonReply {
-  id: string;
-  campaign_id?: string;
-  from_email: string;
-  from_name?: string;
-  subject?: string;
-  body: string;
-  html?: string;
-  received_at: string;
-  status: string;
-  is_automated?: boolean;
-  is_tracked?: boolean;
-  lead_data?: Record<string, any>;
-}
+// Platform API Types (backward-compatible aliases)
+import type { PlatformReply, PlatformCampaign, PlatformSendRequest } from './platforms/types';
 
-export interface EmailBisonSendRequest {
-  reply_id: string;
-  message: string;
-  subject?: string;
-}
+/** @deprecated Use PlatformReply from '@/lib/platforms/types' */
+export type EmailBisonReply = PlatformReply;
 
-export interface EmailBisonCampaign {
-  id: string;
-  name: string;
-  status: string;
-  created_at: string;
-}
+/** @deprecated Use PlatformSendRequest from '@/lib/platforms/types' */
+export type EmailBisonSendRequest = PlatformSendRequest;
+
+/** @deprecated Use PlatformCampaign from '@/lib/platforms/types' */
+export type EmailBisonCampaign = PlatformCampaign;
 
 // OpenAI Types
 export interface CategorizationResult {
@@ -286,7 +274,9 @@ export interface AgentWizardStep1 {
 }
 
 export interface AgentWizardStep2 {
-  emailbison_api_key: string;
+  platform: PlatformType;
+  platform_api_key: string;
+  platform_instance_url?: string;
   openai_api_key: string;
 }
 
@@ -310,6 +300,10 @@ export interface AgentWizardStep5 {
 }
 
 // Error Types
+import { PlatformError } from './platforms/types';
+export { PlatformError };
+
+/** @deprecated Use PlatformError from '@/lib/platforms/types' */
 export class EmailBisonError extends Error {
   constructor(
     message: string,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgent, getInterestedLeads, getReply, getAllAgents } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 
 /**
  * GET /api/debug/test-send
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     // Try to send
     try {
-      const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+      const emailbisonClient = createClientForAgent(agent);
 
       const sendResult = await emailbisonClient.sendReply({
         replyId: reply.emailbison_reply_id,

@@ -1236,7 +1236,7 @@ export default function InboxPage() {
                       </div>
                       {selectedLead.original_status && (
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-600">EmailBison Status</span>
+                          <span className="text-xs text-gray-600">Platform Status</span>
                           <span className="text-xs font-medium text-gray-900 capitalize">
                             {selectedLead.original_status.replace('_', ' ')}
                           </span>

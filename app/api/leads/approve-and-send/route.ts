@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInterestedLead, updateInterestedLead, getAgent, createFeedbackLog } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 
 /**
  * POST /api/leads/approve-and-send
@@ -70,10 +70,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Create EmailBison client
-    const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+    // Create platform client
+    const emailbisonClient = createClientForAgent(agent);
 
-    // Get the most recent EmailBison reply ID
+    // Get the most recent platform reply ID
     const lastLeadMessage = lead.conversation_thread
       .filter((msg) => msg.role === 'lead')
       .slice(-1)[0];
@@ -82,13 +82,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'No EmailBison message ID found to reply to',
+          error: 'No platform message ID found to reply to',
         },
         { status: 400 }
       );
     }
 
-    // Send reply via EmailBison
+    // Send reply via platform
     const sendResult = await emailbisonClient.sendReply({
       replyId: lastLeadMessage.emailbison_message_id,
       message,

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgent, updateAgent, createReply, getReplyByEmailBisonId, updateReply } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import type { Reply } from '@/lib/types';
 
 /**
  * POST /api/replies/sync
- * Sync replies from EmailBison for a specific agent
+ * Sync replies from the platform for a specific agent
  */
 export async function POST(request: NextRequest) {
   try {
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create EmailBison client
-    const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+    // Create platform client
+    const emailbisonClient = createClientForAgent(agent);
 
     // Fetch new replies since last sync
     const lastSyncDate = agent.last_sync_at ? new Date(agent.last_sync_at) : undefined;

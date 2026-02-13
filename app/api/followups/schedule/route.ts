@@ -6,7 +6,7 @@ import {
   createFeedbackLog,
 } from '@/lib/supabase/queries';
 import { generateFollowup } from '@/lib/openai/generator';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 import type { ConversationMessage } from '@/lib/types';
 import { addDays } from 'date-fns';
 
@@ -81,10 +81,8 @@ export async function POST(request: NextRequest) {
               followupStage: nextStage,
             });
 
-            // Create EmailBison client
-            const emailbisonClient = createEmailBisonClient(
-              agent.emailbison_api_key
-            );
+            // Create platform client
+            const emailbisonClient = createClientForAgent(agent);
 
             // Get the last message ID to reply to
             const lastLeadMessage = lead.conversation_thread
@@ -92,7 +90,7 @@ export async function POST(request: NextRequest) {
               .slice(-1)[0];
 
             if (!lastLeadMessage?.emailbison_message_id) {
-              throw new Error('No EmailBison message ID found');
+              throw new Error('No platform message ID found');
             }
 
             // Send follow-up

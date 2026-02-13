@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
+import type { PlatformType } from '@/lib/platforms/types';
+import type { NormalizedWebhookReply } from '@/lib/platforms/types';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
 import {
@@ -10,24 +12,26 @@ import {
   getAllAgents,
 } from '@/lib/supabase/queries';
 
+// =====================================================
+// WEBHOOK PAYLOAD NORMALIZERS
+// =====================================================
+
+const SMARTLEAD_INTERESTED_CATEGORIES = ['Interested', 'Meeting Request', 'Information Request'];
+
 /**
- * Normalize the EmailBison webhook payload into a consistent format.
+ * Normalize EmailBison webhook payload.
  *
- * Actual EmailBison payload structure:
+ * Format:
  * {
- *   "event": { "type": "LEAD_REPLIED", "name": "Lead Replied", ... },
+ *   "event": { "type": "LEAD_REPLIED", ... },
  *   "data": {
- *     "reply": { id, uuid, email_subject, text_body, from_email_address, from_name, ... },
- *     "lead": { id, email, first_name, last_name, title, company, ... },
- *     "campaign": { id, name },
- *     "campaign_event": { ... },
- *     "scheduled_email": { ... },
- *     "sender_email": { ... }
+ *     "reply": { id, uuid, email_subject, text_body, from_email_address, ... },
+ *     "lead": { id, email, first_name, last_name, ... },
+ *     "campaign": { id, name }
  *   }
  * }
  */
-function normalizeWebhookPayload(webhookData: any) {
-  // Actual EmailBison format: data.reply
+function normalizeEmailBisonPayload(webhookData: any): NormalizedWebhookReply {
   if (webhookData.data?.reply) {
     const reply = webhookData.data.reply;
     const lead = webhookData.data.lead || {};
@@ -40,14 +44,13 @@ function normalizeWebhookPayload(webhookData: any) {
       from_email_address: reply.from_email_address || lead.email,
       from_name: reply.from_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim(),
       subject: reply.email_subject || reply.subject,
-      text_body: reply.text_body,
+      text_body: reply.text_body || '',
       html_body: reply.html_body,
       date_received: reply.date_received || reply.created_at,
       interested: reply.interested,
       automated_reply: reply.automated_reply,
       tracked_reply: reply.tracked_reply || (reply.type === 'Tracked Reply'),
       campaign_id: campaign.id?.toString() || reply.campaign_id?.toString(),
-      // Additional metadata
       lead_data: {
         ...lead,
         reply_raw: reply,
@@ -66,7 +69,7 @@ function normalizeWebhookPayload(webhookData: any) {
     from_email_address: reply.from_email_address || reply.from_email,
     from_name: reply.from_name,
     subject: reply.subject || reply.email_subject,
-    text_body: reply.text_body || reply.body,
+    text_body: reply.text_body || reply.body || '',
     html_body: reply.html_body || reply.html,
     date_received: reply.date_received || reply.received_at || reply.created_at,
     interested: reply.interested,
@@ -78,8 +81,122 @@ function normalizeWebhookPayload(webhookData: any) {
 }
 
 /**
+ * Normalize Smartlead webhook payload.
+ *
+ * Format:
+ * {
+ *   "event_type": "EMAIL_REPLY",
+ *   "from_email": "...",
+ *   "to_email": "...",
+ *   "subject": "...",
+ *   "category": "Interested" | "Not Interested" | ...,
+ *   "campaign_id": 123,
+ *   "campaign_name": "...",
+ *   "stats_id": "...",
+ *   "reply_message": { "text": "...", "html": "...", "message_id": "..." },
+ *   "lead": { ... }
+ * }
+ */
+function normalizeSmartleadPayload(webhookData: any): NormalizedWebhookReply {
+  const replyMessage = webhookData.reply_message || {};
+  const lead = webhookData.lead || {};
+  const category = webhookData.category || '';
+
+  return {
+    id: webhookData.stats_id?.toString() || webhookData.id?.toString() || '',
+    from_email_address: webhookData.from_email || lead.email || '',
+    from_name: lead.first_name
+      ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim()
+      : webhookData.from_email || '',
+    subject: webhookData.subject,
+    text_body: replyMessage.text || webhookData.reply_text || '',
+    html_body: replyMessage.html,
+    date_received: webhookData.replied_at || webhookData.timestamp || new Date().toISOString(),
+    interested: SMARTLEAD_INTERESTED_CATEGORIES.includes(category),
+    automated_reply: category === 'Out Of Office',
+    campaign_id: webhookData.campaign_id?.toString(),
+    lead_data: {
+      ...lead,
+      category,
+      campaign_name: webhookData.campaign_name,
+      event_type: webhookData.event_type,
+    },
+    // Smartlead-specific fields needed for reply sending
+    email_stats_id: webhookData.stats_id?.toString(),
+    reply_message_id: replyMessage.message_id,
+    reply_email_time: webhookData.replied_at || webhookData.timestamp,
+    reply_email_body: replyMessage.text || webhookData.reply_text,
+  };
+}
+
+/**
+ * Normalize Instantly.ai webhook payload.
+ *
+ * Format:
+ * {
+ *   "event_type": "reply_received" | "lead_interested",
+ *   "timestamp": "...",
+ *   "lead_email": "...",
+ *   "firstName": "...", "lastName": "...",
+ *   "reply_text": "...",
+ *   "reply_subject": "...",
+ *   "campaign_id": "...",
+ *   "campaign_name": "...",
+ *   "eaccount": "...",
+ *   "reply_to_uuid": "...",
+ *   ...
+ * }
+ */
+function normalizeInstantlyPayload(webhookData: any): NormalizedWebhookReply {
+  // Instantly may nest data under "body"
+  const data = webhookData.body || webhookData;
+
+  return {
+    id: data.reply_to_uuid || data.id?.toString() || '',
+    uuid: data.reply_to_uuid,
+    from_email_address: data.lead_email || data.from_email || '',
+    from_name: data.firstName
+      ? `${data.firstName || ''} ${data.lastName || ''}`.trim()
+      : data.lead_email || '',
+    subject: data.reply_subject || data.subject,
+    text_body: data.reply_text || data.body_text || '',
+    html_body: data.reply_html || data.body_html,
+    date_received: data.timestamp || new Date().toISOString(),
+    interested: data.event_type === 'lead_interested' || data.ai_interest_value >= 0.5,
+    automated_reply: data.is_auto_reply || false,
+    campaign_id: data.campaign_id?.toString(),
+    lead_data: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.lead_email,
+      campaign_name: data.campaign_name,
+      event_type: data.event_type,
+    },
+    // Instantly-specific fields needed for reply sending
+    eaccount: data.eaccount,
+    reply_to_uuid: data.reply_to_uuid,
+  };
+}
+
+/**
+ * Route to the correct normalizer based on the agent's platform
+ */
+function normalizeWebhookPayload(webhookData: any, platform: PlatformType): NormalizedWebhookReply {
+  switch (platform) {
+    case 'smartlead':
+      return normalizeSmartleadPayload(webhookData);
+    case 'instantly':
+      return normalizeInstantlyPayload(webhookData);
+    case 'emailbison':
+    default:
+      return normalizeEmailBisonPayload(webhookData);
+  }
+}
+
+/**
  * POST /api/webhooks/[webhook_id]
- * Dynamic webhook endpoint for EmailBison - routes to specific agent based on webhook_id
+ * Dynamic webhook endpoint - routes to specific agent based on webhook_id
+ * Supports EmailBison, Smartlead, and Instantly.ai payloads
  */
 export async function POST(
   request: NextRequest,
@@ -114,9 +231,10 @@ export async function POST(
       );
     }
 
-    // Parse and normalize the webhook payload
+    // Parse and normalize the webhook payload based on agent's platform
     const webhookData = await request.json();
-    const reply = normalizeWebhookPayload(webhookData);
+    const platform = (agent.platform || 'emailbison') as PlatformType;
+    const reply = normalizeWebhookPayload(webhookData, platform);
 
     console.log(
       `[Webhook] Received for agent ${agent.name} (${agent.id}):`,
@@ -247,11 +365,20 @@ export async function POST(
       } else {
         // Auto-send response
         try {
-          const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+          const platformClient = createClientForAgent(agent);
 
-          const sendResult = await emailbisonClient.sendReply({
+          const sendResult = await platformClient.sendReply({
             replyId: reply.id,
             message: generatedResponse.content,
+            campaign_id: reply.campaign_id,
+            // Pass platform-specific fields for Smartlead
+            email_stats_id: reply.email_stats_id,
+            reply_message_id: reply.reply_message_id,
+            reply_email_time: reply.reply_email_time,
+            reply_email_body: reply.reply_email_body,
+            // Pass platform-specific fields for Instantly
+            eaccount: reply.eaccount,
+            reply_to_uuid: reply.reply_to_uuid,
           });
 
           // Update lead record with sent status

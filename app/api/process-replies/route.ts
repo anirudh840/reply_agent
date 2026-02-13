@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllAgents } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
 import { createReply, createInterestedLead, getReplyByEmailBisonId, updateInterestedLead } from '@/lib/supabase/queries';
 
 /**
  * POST /api/process-replies
- * Process new replies from EmailBison for all active agents
+ * Process new replies from the platform for all active agents
  * Can be called by webhook or cron job
  */
 export async function POST(request: NextRequest) {
@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
       try {
         results.agents_processed++;
 
-        // Create EmailBison client
-        const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+        // Create platform client
+        const emailbisonClient = createClientForAgent(agent);
 
         // Fetch ALL non-automated replies (not just pre-filtered "interested")
         // We'll use AI to categorize them properly

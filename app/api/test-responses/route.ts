@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createPlatformClient, platformDisplayName } from '@/lib/platforms';
+import type { PlatformType } from '@/lib/platforms/types';
 import { generateResponse } from '@/lib/openai/generator';
 import type { Agent } from '@/lib/types';
 
@@ -10,20 +11,21 @@ import type { Agent } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { emailbison_api_key, openai_api_key, knowledge_base } = body;
+    const { emailbison_api_key, openai_api_key, knowledge_base, platform: platformParam, platform_instance_url } = body;
+    const platform: PlatformType = platformParam || 'emailbison';
 
     if (!emailbison_api_key || !openai_api_key) {
       return NextResponse.json(
         {
           success: false,
-          error: 'emailbison_api_key and openai_api_key are required',
+          error: 'API key and openai_api_key are required',
         },
         { status: 400 }
       );
     }
 
-    // Create EmailBison client
-    const emailbisonClient = createEmailBisonClient(emailbison_api_key);
+    // Create platform client
+    const platformClient = createPlatformClient(platform, emailbison_api_key, platform_instance_url);
 
     // Collect logs to return to client
     const logs: string[] = [];
@@ -37,13 +39,13 @@ export async function POST(request: NextRequest) {
       logs.push('[Strategy 1] Attempting to fetch interested replies from campaigns...');
       console.log('[Test Responses] Attempting to fetch interested replies...');
 
-      const result = await emailbisonClient.getReplies({
+      const result = await platformClient.getReplies({
         status: 'interested',
         limit: 20,
       });
 
-      logs.push(`[Strategy 1] Received ${result.data.length} interested replies from EmailBison`);
-      console.log('[Test Responses] Received', result.data.length, 'interested replies from EmailBison');
+      logs.push(`[Strategy 1] Received ${result.data.length} interested replies from the platform`);
+      console.log('[Test Responses] Received', result.data.length, 'interested replies from the platform');
 
       // Filter out replies with empty bodies
       sampleReplies = result.data.filter(
@@ -64,10 +66,10 @@ export async function POST(request: NextRequest) {
         logs.push('[Strategy 2] Strategy 1 yielded no results. Trying all non-automated replies...');
         console.log('[Test Responses] Strategy 1 yielded no results. Trying all non-automated replies...');
 
-        const result = await emailbisonClient.getReplies({ limit: 50 });
+        const result = await platformClient.getReplies({ limit: 50 });
 
-        logs.push(`[Strategy 2] Received ${result.data.length} total replies from EmailBison`);
-        console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
+        logs.push(`[Strategy 2] Received ${result.data.length} total replies from the platform`);
+        console.log('[Test Responses] Received', result.data.length, 'total replies from the platform');
 
         // Filter for non-automated replies with bodies
         sampleReplies = result.data.filter(
@@ -92,10 +94,10 @@ export async function POST(request: NextRequest) {
         logs.push('[Strategy 3] Strategy 2 yielded no results. Trying any replies with content...');
         console.log('[Test Responses] Strategy 2 yielded no results. Trying any replies with content...');
 
-        const result = await emailbisonClient.getReplies({ limit: 100 });
+        const result = await platformClient.getReplies({ limit: 100 });
 
-        logs.push(`[Strategy 3] Received ${result.data.length} total replies from EmailBison`);
-        console.log('[Test Responses] Received', result.data.length, 'total replies from EmailBison');
+        logs.push(`[Strategy 3] Received ${result.data.length} total replies from the platform`);
+        console.log('[Test Responses] Received', result.data.length, 'total replies from the platform');
 
         // Filter for any replies with bodies
         sampleReplies = result.data.filter(
@@ -113,7 +115,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: `Failed to fetch replies from EmailBison: ${fetchError}. Please verify your API key and ensure you have replies in your workspace.`,
+            error: `Failed to fetch replies from the platform: ${fetchError}. Please verify your API key and ensure you have replies in your workspace.`,
             details: emailError,
             logs,
           },
@@ -150,6 +152,8 @@ export async function POST(request: NextRequest) {
       name: 'Test Agent',
       mode: 'human_in_loop',
       timezone: 'UTC',
+      platform,
+      platform_instance_url,
       emailbison_api_key,
       openai_api_key,
       knowledge_base: knowledge_base || {

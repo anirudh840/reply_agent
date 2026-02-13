@@ -2,9 +2,28 @@
 // APPLICATION CONSTANTS
 // =====================================================
 
+// Platform Configuration
+export const PLATFORMS = {
+  EMAILBISON: 'emailbison',
+  SMARTLEAD: 'smartlead',
+  INSTANTLY: 'instantly',
+} as const;
+
+export const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
+  emailbison: 'EmailBison',
+  smartlead: 'Smartlead',
+  instantly: 'Instantly.ai',
+};
+
 // EmailBison Configuration
 export const EMAILBISON_INSTANCE = process.env.EMAILBISON_INSTANCE || 'mail.revgenlabs.com';
 export const EMAILBISON_BASE_URL = `https://${EMAILBISON_INSTANCE}/api`;
+
+// Smartlead Configuration
+export const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
+
+// Instantly Configuration
+export const INSTANTLY_BASE_URL = 'https://api.instantly.ai/api/v2';
 
 // OpenAI Configuration
 export const OPENAI_MODELS = {

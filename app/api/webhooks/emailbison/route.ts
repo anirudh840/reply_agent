@@ -3,7 +3,7 @@ import { getAllAgents } from '@/lib/supabase/queries';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
 import { createReply, createInterestedLead, getReplyByEmailBisonId } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 
 /**
  * GET /api/webhooks/emailbison
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
       // If auto-send is enabled and confidence is high enough, send the response
       if (!needsApproval) {
         try {
-          const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+          const emailbisonClient = createClientForAgent(agent);
           await emailbisonClient.sendReply({
             replyId: String(reply.id),
             message: generatedResponse.content,

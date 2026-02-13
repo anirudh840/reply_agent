@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Loader2, Plus, Trash2, Globe, AlertCircle } from 'lucide-react';
-import { TIMEZONES } from '@/lib/constants';
+import { TIMEZONES, PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
 import type { Agent } from '@/lib/types';
 
 export default function ConfigureAgentPage() {
@@ -245,7 +245,7 @@ export default function ConfigureAgentPage() {
               <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm text-blue-900">
-                  <strong>Note:</strong> API keys (EmailBison and OpenAI) cannot be edited for
+                  <strong>Note:</strong> Platform, API keys, and OpenAI key cannot be edited for
                   security reasons. If you need to change them, please create a new agent.
                 </p>
               </div>
@@ -259,6 +259,14 @@ export default function ConfigureAgentPage() {
             <CardTitle>Basic Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Platform Badge (read-only) */}
+            <div>
+              <label className="mb-2 block text-sm font-medium">Platform</label>
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-sm px-3 py-1">
+                {PLATFORM_DISPLAY_NAMES[agent.platform || 'emailbison'] || 'EmailBison'}
+              </Badge>
+            </div>
+
             <div>
               <label className="mb-2 block text-sm font-medium">Agent Name</label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Sales Outreach Agent" />

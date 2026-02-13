@@ -7,7 +7,7 @@ import {
   updateInterestedLead,
 } from '@/lib/supabase/queries';
 import { generateResponse } from '@/lib/openai/generator';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 import type { ConversationMessage } from '@/lib/types';
 import { CONFIDENCE_THRESHOLDS } from '@/lib/constants';
 
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     // Auto-send if eligible (fully automated + high confidence)
     if (!needsApproval && agent.mode === 'fully_automated') {
       try {
-        const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+        const emailbisonClient = createClientForAgent(agent);
 
         const sendResult = await emailbisonClient.sendReply({
           replyId: reply.emailbison_reply_id,

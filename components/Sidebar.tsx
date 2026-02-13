@@ -45,7 +45,7 @@ export function Sidebar() {
         <p className="text-xs text-gray-500">
           © 2024 Reply Agent
           <br />
-          Powered by EmailBison
+          Multi-Platform Reply Agent
         </p>
       </div>
     </div>

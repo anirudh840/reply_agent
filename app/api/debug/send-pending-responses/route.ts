@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllAgents, getInterestedLeads, updateInterestedLead, getReply } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 import type { ConversationMessage } from '@/lib/types';
 
 /**
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
             results.sent++;
           } else {
             // Actually send the response
-            const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+            const emailbisonClient = createClientForAgent(agent);
 
             const sendResult = await emailbisonClient.sendReply({
               replyId: reply.emailbison_reply_id,

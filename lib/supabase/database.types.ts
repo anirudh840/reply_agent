@@ -14,6 +14,8 @@ export interface Database {
           name: string;
           mode: 'fully_automated' | 'human_in_loop';
           timezone: string;
+          platform: 'emailbison' | 'smartlead' | 'instantly';
+          platform_instance_url: string | null;
           emailbison_api_key: string;
           emailbison_workspace_id: string | null;
           openai_api_key: string;

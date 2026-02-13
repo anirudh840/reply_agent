@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAgent, getAgents } from '@/lib/supabase/queries';
 import { generateKnowledgeBaseEmbeddings } from '@/lib/openai/embeddings';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createPlatformClient, platformDisplayName } from '@/lib/platforms';
+import type { PlatformType } from '@/lib/platforms/types';
 import { createOpenAIClient } from '@/lib/openai/client';
 import { generateWebhookId, getWebhookUrl } from '@/lib/webhooks';
 import type { Agent } from '@/lib/types';
@@ -42,26 +43,33 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Validate required fields
+    const platform: PlatformType = body.platform || 'emailbison';
     if (!body.name || !body.emailbison_api_key || !body.openai_api_key) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Missing required fields: name, emailbison_api_key, openai_api_key',
+          error: 'Missing required fields: name, API key, openai_api_key',
         },
         { status: 400 }
       );
     }
 
-    // Test EmailBison API connection
-    try {
-      const emailbisonClient = createEmailBisonClient(body.emailbison_api_key);
-      const isValidEmailBison = await emailbisonClient.testConnection();
+    const displayName = platformDisplayName(platform);
 
-      if (!isValidEmailBison) {
+    // Test platform API connection
+    try {
+      const platformClient = createPlatformClient(
+        platform,
+        body.emailbison_api_key,
+        body.platform_instance_url
+      );
+      const isValidPlatform = await platformClient.testConnection();
+
+      if (!isValidPlatform) {
         return NextResponse.json(
           {
             success: false,
-            error: 'Invalid EmailBison API key',
+            error: `Invalid ${displayName} API key`,
           },
           { status: 400 }
         );
@@ -70,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Failed to connect to EmailBison API. Please check your API key.',
+          error: `Failed to connect to ${displayName} API. Please check your API key.`,
         },
         { status: 400 }
       );
@@ -108,6 +116,8 @@ export async function POST(request: NextRequest) {
       name: body.name,
       mode: body.mode || 'human_in_loop',
       timezone: body.timezone || 'UTC',
+      platform,
+      platform_instance_url: platform === 'emailbison' ? body.platform_instance_url : undefined,
       emailbison_api_key: body.emailbison_api_key,
       emailbison_workspace_id: body.emailbison_workspace_id,
       openai_api_key: body.openai_api_key,
@@ -150,7 +160,7 @@ export async function POST(request: NextRequest) {
         success: true,
         data: agent,
         webhook_url: webhookUrl,
-        message: 'Agent created successfully. Configure the webhook URL in your EmailBison workspace.',
+        message: `Agent created successfully. Configure the webhook URL in your ${displayName} workspace.`,
       },
       { status: 201 }
     );

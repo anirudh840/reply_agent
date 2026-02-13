@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllAgents } from '@/lib/supabase/queries';
-import { createEmailBisonClient } from '@/lib/emailbison/client';
+import { createClientForAgent } from '@/lib/platforms';
 
 /**
  * GET /api/debug/emailbison
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     for (const agent of activeAgents) {
       try {
-        const emailbisonClient = createEmailBisonClient(agent.emailbison_api_key);
+        const emailbisonClient = createClientForAgent(agent);
 
         // Test 1: Fetch ALL replies (no status filter)
         const allRepliesResult = await emailbisonClient.getReplies({
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
         results.push({
           agent_id: agent.id,
           agent_name: agent.name,
-          error: agentError.message || 'Failed to fetch from EmailBison',
+          error: agentError.message || 'Failed to fetch from platform',
           error_details: agentError.toString(),
         });
       }
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to debug EmailBison',
+        error: error.message || 'Failed to debug platform connection',
       },
       { status: 500 }
     );

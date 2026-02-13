@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, RefreshCw, Settings, Pause, Play, Trash2 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import { PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
 import type { Agent } from '@/lib/types';
 
 export default function AgentsPage() {
@@ -139,7 +140,7 @@ export default function AgentsPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <CardTitle className="mb-2">{agent.name}</CardTitle>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Badge variant={agent.is_active ? 'default' : 'secondary'}>
                         {agent.is_active ? 'Active' : 'Paused'}
                       </Badge>
@@ -147,6 +148,9 @@ export default function AgentsPage() {
                         {agent.mode === 'fully_automated'
                           ? 'Fully Automated'
                           : 'Human in Loop'}
+                      </Badge>
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        {PLATFORM_DISPLAY_NAMES[agent.platform || 'emailbison'] || 'EmailBison'}
                       </Badge>
                     </div>
                   </div>
