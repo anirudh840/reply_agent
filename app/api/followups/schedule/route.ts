@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
               last_response_sent: followup.content,
               last_response_sent_at: new Date().toISOString(),
               followup_stage: nextStage,
+              followup_sent: true,
               next_followup_due_at: nextFollowupDate?.toISOString() || undefined,
               conversation_status:
                 nextStage >= agent.followup_sequence.steps.length

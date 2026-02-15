@@ -18,6 +18,7 @@ import { refreshConversationThread } from '@/lib/platforms/thread-sync';
 import { sendSlackNotification } from '@/lib/integrations/slack';
 import { executeBookingAction } from '@/lib/integrations/booking';
 import type { ConversationMessage } from '@/lib/types';
+import { addDays } from 'date-fns';
 
 // =====================================================
 // WEBHOOK PAYLOAD NORMALIZERS
@@ -600,15 +601,21 @@ export async function POST(
             },
           });
 
+          // Schedule the first followup based on agent's followup sequence
+          const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
+          const nextFollowupDate = firstFollowupConfig
+            ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
+            : undefined;
+
           await updateInterestedLead(leadRecord.id, {
             conversation_thread: refreshedThread,
             last_response_sent: generatedResponse.content,
             last_response_sent_at: now,
             needs_approval: false,
-            followup_sent: true,
+            next_followup_due_at: nextFollowupDate,
           });
 
-          console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}`);
+          console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, next followup: ${nextFollowupDate || 'none'}`);
         } catch (sendError) {
           console.error('[Webhook] Error sending auto-reply:', sendError);
         }

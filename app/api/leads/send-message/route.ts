@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInterestedLead, updateInterestedLead, getAgent } from '@/lib/supabase/queries';
 import { createClientForAgent } from '@/lib/platforms';
 import { refreshConversationThread } from '@/lib/platforms/thread-sync';
+import { addDays } from 'date-fns';
 
 /**
  * POST /api/leads/send-message
@@ -77,12 +78,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Schedule the first followup based on agent's followup sequence
+    const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
+    const nextFollowupDate = firstFollowupConfig
+      ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
+      : undefined;
+
     await updateInterestedLead(lead_id, {
       conversation_thread: refreshedThread,
       last_response_sent: message,
       last_response_sent_at: now,
       needs_approval: false,
-      followup_sent: true,
+      next_followup_due_at: nextFollowupDate,
     });
 
     return NextResponse.json({

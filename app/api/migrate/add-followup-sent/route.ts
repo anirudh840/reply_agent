@@ -10,12 +10,12 @@ import { supabaseAdmin } from '@/lib/supabase/client';
  */
 export async function POST() {
   try {
-    // Backfill: set followup_sent=true for leads that already have a response sent
+    // Backfill: set followup_sent=true for leads that have gone through at least one followup stage
     const { data, error } = await supabaseAdmin
       .from('interested_leads')
       // @ts-ignore - followup_sent column added via migration
       .update({ followup_sent: true })
-      .not('last_response_sent', 'is', null)
+      .gt('followup_stage', 0)
       .select('id');
 
     if (error) {
