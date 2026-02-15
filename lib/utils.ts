@@ -28,10 +28,53 @@ export function formatDate(date: string | Date): string {
 }
 
 /**
+ * Safely parse a date string that might be ISO or human-readable
+ * (e.g., "Sat, Feb 14, 2026 at 11:52 AM" from email quote headers).
+ * Returns null if the date cannot be parsed.
+ */
+export function safeParseDate(date: string | Date): Date | null {
+  if (date instanceof Date) return isNaN(date.getTime()) ? null : date;
+  if (!date) return null;
+
+  // Try native parsing first (works for ISO strings)
+  const d = new Date(date);
+  if (!isNaN(d.getTime())) return d;
+
+  // Try parsing "Fri, Feb 14, 2026 at 5:54 PM" style from email headers
+  const emailDateMatch = date.match(
+    /(\w+,\s+)?(\w+)\s+(\d+),?\s+(\d{4})\s+at\s+(\d+):(\d+)\s*(AM|PM)?/i
+  );
+  if (emailDateMatch) {
+    const [, , month, day, year, hour, minute, ampm] = emailDateMatch;
+    const dateStr = `${month} ${day}, ${year} ${hour}:${minute} ${ampm || ''}`.trim();
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
+/**
+ * Format a date safely — returns formatted string or the raw input if unparseable.
+ */
+export function safeFormatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
+  const parsed = safeParseDate(date);
+  if (!parsed) return typeof date === 'string' ? date : 'Unknown date';
+  return new Intl.DateTimeFormat('en-US', options || {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
+/**
  * Format date to relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const d = safeParseDate(date);
+  if (!d) return typeof date === 'string' ? date : 'Unknown';
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffSecs = Math.floor(diffMs / 1000);

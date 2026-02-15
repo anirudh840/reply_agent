@@ -479,10 +479,27 @@ export async function POST(
         conversationHistory: conversationThread.slice(1), // Pass quoted messages as history
       });
 
-      // Determine if approval is needed
-      const needsApproval =
-        agent.mode === 'human_in_loop' ||
-        generatedResponse.confidence_score <= agent.confidence_threshold;
+      // Determine if approval is needed and why
+      const isLowConfidence = generatedResponse.confidence_score <= agent.confidence_threshold;
+      const isHumanInLoop = agent.mode === 'human_in_loop';
+      const needsApproval = isHumanInLoop || isLowConfidence;
+
+      let approvalReason: string | undefined;
+      if (needsApproval) {
+        const reasons: string[] = [];
+        if (isHumanInLoop) {
+          reasons.push('Agent is in Human-in-Loop mode — all responses require manual approval');
+        }
+        if (isLowConfidence) {
+          reasons.push(
+            `AI confidence score (${generatedResponse.confidence_score}/10) is below the agent's threshold (${agent.confidence_threshold}/10)`
+          );
+        }
+        approvalReason = reasons.join('. ');
+        if (categorization.reasoning) {
+          approvalReason += `\n\nAI Analysis: ${categorization.reasoning}`;
+        }
+      }
 
       // Create interested lead record with parsed conversation thread
       const interestedLead = await createInterestedLead({
@@ -496,6 +513,7 @@ export async function POST(
         response_confidence_score: generatedResponse.confidence_score,
         last_lead_reply_at: reply.date_received || new Date().toISOString(),
         needs_approval: needsApproval,
+        approval_reason: approvalReason,
         conversation_status: 'active',
         followup_stage: 0,
       });

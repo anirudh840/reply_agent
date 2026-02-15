@@ -32,7 +32,7 @@ import {
   Upload,
   Loader2,
 } from 'lucide-react';
-import { formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime, safeFormatDate } from '@/lib/utils';
 import type { InterestedLead, Agent } from '@/lib/types';
 import { RichTextEditor } from '@/components/inbox/RichTextEditor';
 import { toast, Toaster } from 'react-hot-toast';
@@ -693,6 +693,12 @@ export default function InboxPage() {
                         <p className="text-xs text-yellow-700">
                           AI confidence: {selectedLead.response_confidence_score}/10 - Please review and approve or edit the suggested response below.
                         </p>
+                        {selectedLead.approval_reason && (
+                          <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-800 whitespace-pre-wrap">
+                            <span className="font-semibold">Reason: </span>
+                            {selectedLead.approval_reason}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <Badge variant="destructive" className="text-xs">
@@ -887,7 +893,7 @@ export default function InboxPage() {
                                           }
                                         </div>
                                         <div>
-                                          <span className="font-medium">Date:</span> {new Date(message.timestamp).toLocaleString('en-US', {
+                                          <span className="font-medium">Date:</span> {safeFormatDate(message.timestamp, {
                                             month: 'short',
                                             day: 'numeric',
                                             year: 'numeric',

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getInterestedLeads } from '@/lib/supabase/queries';
+import { getInterestedLeads, updateInterestedLead } from '@/lib/supabase/queries';
 
 /**
  * GET /api/leads
@@ -60,6 +60,41 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error.message || 'Failed to fetch leads',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/leads
+ * Update a lead (e.g., reassign agent_id)
+ * Body: { lead_id: string, updates: { agent_id?: string, ... } }
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { lead_id, updates } = body;
+
+    if (!lead_id || !updates) {
+      return NextResponse.json(
+        { success: false, error: 'lead_id and updates are required' },
+        { status: 400 }
+      );
+    }
+
+    const updatedLead = await updateInterestedLead(lead_id, updates);
+
+    return NextResponse.json({
+      success: true,
+      data: updatedLead,
+    });
+  } catch (error: any) {
+    console.error('Error updating lead:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || 'Failed to update lead',
       },
       { status: 500 }
     );
