@@ -131,12 +131,17 @@ export async function updateReply(id: string, updates: Partial<Reply>) {
   return data as Reply;
 }
 
-export async function getReplyByEmailBisonId(emailbisonReplyId: string) {
-  const { data, error } = await supabaseAdmin
+export async function getReplyByEmailBisonId(emailbisonReplyId: string, agentId?: string) {
+  let query = supabaseAdmin
     .from('replies')
     .select('*')
-    .eq('emailbison_reply_id', emailbisonReplyId)
-    .maybeSingle();
+    .eq('emailbison_reply_id', emailbisonReplyId);
+
+  if (agentId) {
+    query = query.eq('agent_id', agentId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) throw new DatabaseError('Failed to get reply by EmailBison ID', error);
   return data as Reply | null;

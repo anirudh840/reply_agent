@@ -93,7 +93,41 @@ class CalendlyBookingAdapter implements BookingClient {
     });
   }
 
-  // Calendly does not support programmatic booking
+  async executeBooking(params: {
+    date: string;
+    startTime: string;
+    timezone: string;
+    attendeeName: string;
+    attendeeEmail: string;
+  }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
+    try {
+      // Build UTC ISO datetime from date + time + timezone
+      const startISO = `${params.date}T${params.startTime}:00`;
+      // Convert to UTC for Calendly API
+      const localDate = new Date(`${startISO}`);
+      // If timezone is given, create proper ISO with Z suffix (Calendly expects UTC)
+      const utcTime = localDate.toISOString();
+
+      const result = await this.client.createBooking({
+        eventTypeUri: this.agent.booking_event_id!,
+        startTime: utcTime,
+        attendeeName: params.attendeeName,
+        attendeeEmail: params.attendeeEmail,
+        attendeeTimezone: params.timezone,
+      });
+
+      return {
+        success: true,
+        meetingUrl: result.schedulingUrl,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message || 'Failed to create Calendly booking',
+      };
+    }
+  }
+
   getBookingLink(): string | undefined {
     return this.agent.booking_link;
   }
@@ -140,10 +174,6 @@ function formatSlotsForPrompt(
 
   if (bookingLink) {
     result += `\nBooking link: ${bookingLink}`;
-  }
-
-  if (platform === 'calendly') {
-    result += '\n(Note: Cannot book directly - share the booking link with the lead)';
   }
 
   return result.trim();

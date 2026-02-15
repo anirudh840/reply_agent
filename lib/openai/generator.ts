@@ -79,7 +79,7 @@ export async function generateResponse(params: {
     try {
       const availability = await getAvailabilityContext(agent);
       if (availability) {
-        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR INSTRUCTIONS:\n- If the lead asks about scheduling or availability, reference these time slots.\n- If the lead suggests a specific time and it's available, book it by setting booking_action to "book" with their details.\n- If the suggested time is NOT available, suggest the 2-3 closest available slots.\n- If using Calendly, you CANNOT book directly — share the booking link instead (use booking_action "suggest_link").\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com (direct booking supported)' : 'Calendly (share link only)'}\n`;
+        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR INSTRUCTIONS:\n- If the lead asks about scheduling or availability, reference these time slots.\n- If the lead suggests a specific time and it's available, book it by setting booking_action to "book" with their details.\n- If the suggested time is NOT available, suggest the 2-3 closest available slots.\n- Both Cal.com and Calendly support direct booking — set booking_action to "book" when the lead requests a specific time.\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com' : 'Calendly'}\n`;
       }
     } catch (error) {
       console.warn('[Generator] Failed to fetch availability:', error);

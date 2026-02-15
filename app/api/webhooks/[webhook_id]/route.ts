@@ -280,9 +280,9 @@ export async function POST(
       });
     }
 
-    // Check if already processed (use both id and uuid)
-    const existingById = await getReplyByEmailBisonId(reply.id);
-    const existingByUuid = reply.uuid ? await getReplyByEmailBisonId(reply.uuid) : null;
+    // Check if already processed for THIS agent (use both id and uuid)
+    const existingById = await getReplyByEmailBisonId(reply.id, agent.id);
+    const existingByUuid = reply.uuid ? await getReplyByEmailBisonId(reply.uuid, agent.id) : null;
     if (existingById || existingByUuid) {
       console.log(`[Webhook] Reply ${reply.id} already processed`);
       return NextResponse.json({

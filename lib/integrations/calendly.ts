@@ -10,6 +10,13 @@ export interface CalendlyEventType {
   scheduling_url: string;
 }
 
+export interface CalendlyBookingResult {
+  uri: string;
+  event_uri: string;
+  status: string;
+  schedulingUrl?: string;
+}
+
 export class CalendlyClient {
   private apiKey: string;
 
@@ -93,5 +100,38 @@ export class CalendlyClient {
         timezone: 'UTC',
       };
     });
+  }
+
+  /**
+   * Create a booking using Calendly's Scheduling API (Create Event Invitee).
+   * Requires the user to be on a paid Calendly plan.
+   */
+  async createBooking(params: {
+    eventTypeUri: string;
+    startTime: string;
+    attendeeName: string;
+    attendeeEmail: string;
+    attendeeTimezone: string;
+  }): Promise<CalendlyBookingResult> {
+    const response = await this.request<{ resource: any }>('/invitees', {
+      method: 'POST',
+      body: JSON.stringify({
+        event_type_uri: params.eventTypeUri,
+        start_time: params.startTime,
+        invitee: {
+          name: params.attendeeName,
+          email: params.attendeeEmail,
+          timezone: params.attendeeTimezone,
+        },
+      }),
+    });
+
+    const invitee = response.resource;
+    return {
+      uri: invitee.uri,
+      event_uri: invitee.event || invitee.scheduled_event?.uri || '',
+      status: invitee.status || 'active',
+      schedulingUrl: invitee.reschedule_url,
+    };
   }
 }

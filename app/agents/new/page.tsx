@@ -697,9 +697,9 @@ export default function NewAgentPage() {
                     )}
 
                     {bookingPlatform === 'calendly' && bookingEventId && (
-                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
-                        <p className="text-xs text-amber-800">
-                          Calendly does not support programmatic booking. The AI will check availability and share your scheduling link with leads.
+                      <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                        <p className="text-xs text-blue-800">
+                          Calendly Scheduling API requires a paid plan. The AI will check availability and book meetings automatically.
                         </p>
                       </div>
                     )}
