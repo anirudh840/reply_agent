@@ -3,6 +3,38 @@ import { getFormattedContext } from '../rag/retrieval';
 import { getAvailabilityContext } from '../integrations/booking';
 import type { GeneratedResponse, Agent, InterestedLead, ConversationMessage } from '../types';
 
+/**
+ * Sanitize AI-generated email content to remove:
+ * - Subject lines (e.g., "Subject: ...")
+ * - Placeholder brackets (e.g., [Your Name], [Company])
+ * - Signature blocks with placeholders
+ */
+function sanitizeEmailContent(content: string): string {
+  let cleaned = content;
+
+  // Remove subject lines at the beginning
+  cleaned = cleaned.replace(/^(Subject|Re|Fwd|RE|FW):.*\n*/im, '');
+
+  // Remove placeholder brackets like [Your Name], [Your Company], etc.
+  cleaned = cleaned.replace(/\[Your\s+\w+(\s+\w+)?\]/gi, '');
+  cleaned = cleaned.replace(/\[Company\s*\w*\]/gi, '');
+  cleaned = cleaned.replace(/\[Name\]/gi, '');
+  cleaned = cleaned.replace(/\[Position\]/gi, '');
+  cleaned = cleaned.replace(/\[Phone\s*\w*\]/gi, '');
+  cleaned = cleaned.replace(/\[Email\s*\w*\]/gi, '');
+  cleaned = cleaned.replace(/\[Website\s*\w*\]/gi, '');
+  cleaned = cleaned.replace(/\[Contact\s*\w*\]/gi, '');
+  cleaned = cleaned.replace(/\[Insert\s+\w+.*?\]/gi, '');
+
+  // Remove lines that are ONLY a placeholder (empty after removal)
+  cleaned = cleaned.replace(/^\s*\n/gm, '\n');
+
+  // Collapse 3+ consecutive newlines into 2
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+  return cleaned.trim();
+}
+
 const RESPONSE_GENERATION_SYSTEM_PROMPT = `You are an expert sales development representative writing personalized email responses for cold outreach campaigns.
 
 Your role is to:
@@ -13,27 +45,24 @@ Your role is to:
 5. Be concise but helpful (aim for 100-200 words)
 6. When calendar availability is provided, reference available time slots and help schedule meetings
 
-CRITICAL REQUIREMENTS:
-- Write ONLY the email body content (no subject lines, no "Subject:" prefix)
-- NEVER use placeholders like [Your Name], [Your Position], [Your Company], [Your Contact Info]
-- Write a complete, ready-to-send email message
-- Do NOT include signature blocks, contact information, or company details
-- Just write the conversational message body
-- Always be professional and courteous
-- Don't make up information not in the knowledge base
-- If you lack information, acknowledge it and offer to find out
-- Include a clear call-to-action
-- Match the formality level of the lead's message
-- Reference specific points from their message to show you read it
+ABSOLUTE RULES (VIOLATIONS WILL CAUSE FAILURE):
+1. NEVER include a subject line. No "Subject:", no "Re:", no title — the email is a reply in an existing thread.
+2. NEVER use placeholder brackets. Text like [Your Name], [Your Company], [Your Position], [Your Phone], [Your Website], [Company], [Name], [Contact Info] is STRICTLY FORBIDDEN. If you don't know a value, OMIT IT ENTIRELY — do not put a bracket placeholder.
+3. NEVER include a signature block. No name/title/company/phone/website at the end. End with just a short sign-off like "Best," or "Cheers," and NOTHING after it.
+4. Write ONLY the message body — the exact text that goes into the email reply field.
+5. Don't make up information not in the knowledge base.
+6. If you lack information, acknowledge it and offer to find out.
+7. Include a clear call-to-action.
+8. Match the formality level of the lead's message.
+9. Reference specific points from their message to show you read it.
 
-EMAIL FORMATTING (VERY IMPORTANT):
+EMAIL FORMATTING:
 - Structure the email with clear, short paragraphs (2-3 sentences each)
 - Use blank lines between paragraphs for readability
-- Start with a personalized greeting line (e.g., "Hi [Name],")
+- Start with a personalized greeting (e.g., "Hi Sarah,")
 - End with a clear call-to-action on its own line
-- Add a sign-off like "Best," or "Cheers," on its own line followed by a blank line
+- Add a sign-off like "Best," or "Cheers," on its own line — NOTHING after it
 - NEVER write the entire email as one long paragraph
-- Each distinct thought or point should be its own paragraph
 
 Provide your response in JSON format with the email content and a confidence score.`;
 
@@ -125,12 +154,15 @@ Generate an appropriate email response that:
 3. Includes a clear next step or call-to-action
 4. Maintains a professional yet friendly tone
 
-CRITICAL: Write ONLY the email body - no subject line, no signature, no placeholders, no [Your Name] fields.
-Just write the actual message content that will be sent as a reply.
+CRITICAL RULES:
+- This is a REPLY in an existing email thread. Do NOT include any subject line.
+- Do NOT use ANY placeholder brackets like [Your Name], [Company], etc. If you don't know it, leave it out entirely.
+- Do NOT add a signature block (no name, title, company, phone, website at the end).
+- End with just a sign-off like "Best," or "Cheers," and STOP.
 
 Respond in JSON format with:
 {
-  "content": "The complete email body text ready to send (no placeholders, no subject line, no signature)",
+  "content": "The email reply body only (NO subject, NO placeholders, NO signature block)",
   "confidence_score": number (0-10, where 10 is highest confidence),
   "reasoning": "Brief explanation of why you chose this response and your confidence level"${bookingJsonSection}
 }`;
@@ -149,7 +181,7 @@ Respond in JSON format with:
     const result = JSON.parse(response.content);
 
     return {
-      content: result.content || '',
+      content: sanitizeEmailContent(result.content || ''),
       confidence_score: result.confidence_score || 5,
       retrieved_context: results.map((r) => r.content_text),
       reasoning: result.reasoning || 'No reasoning provided',
@@ -160,7 +192,7 @@ Respond in JSON format with:
   } catch (error) {
     // Fallback if JSON parsing fails
     return {
-      content: response.content,
+      content: sanitizeEmailContent(response.content),
       confidence_score: 0,
       retrieved_context: [],
       reasoning: 'Failed to parse AI response',
@@ -235,9 +267,16 @@ Generate a follow-up email that:
 3. Is brief and non-pushy (80-150 words)
 4. ${followupType === 'close_up' ? 'Thanks them and leaves door open' : 'Includes a soft call-to-action'}
 
+CRITICAL RULES:
+- This is a REPLY in an existing email thread. Do NOT include any subject line or "Subject:" prefix.
+- Do NOT use ANY placeholder brackets like [Your Name], [Your Company], [Your Position], [Your Phone], etc. If you don't know something, leave it out entirely.
+- Do NOT add a signature block (no name, title, company, phone, website at the end).
+- End with just a short sign-off like "Best," or "Cheers," and STOP.
+- Write ONLY the message body.
+
 Respond in JSON format with:
 {
-  "content": "The follow-up email text",
+  "content": "The follow-up email body only (NO subject, NO placeholders, NO signature block)",
   "confidence_score": number (0-10),
   "reasoning": "Brief explanation"
 }`;
@@ -247,7 +286,7 @@ Respond in JSON format with:
       {
         role: 'system',
         content:
-          'You are an expert at writing professional, non-pushy follow-up emails that provide value.',
+          'You are an expert at writing professional, non-pushy follow-up emails that provide value. ABSOLUTE RULES: 1) NEVER include a subject line — this is a reply in an existing thread. 2) NEVER use placeholder brackets like [Your Name], [Company], [Position], [Phone], [Website]. If you don\'t know a value, omit it entirely. 3) NEVER include a signature block. End with just a sign-off like "Best," and STOP. Write ONLY the message body.',
       },
       { role: 'user', content: userPrompt },
     ],
@@ -260,14 +299,14 @@ Respond in JSON format with:
     const result = JSON.parse(response.content);
 
     return {
-      content: result.content || '',
+      content: sanitizeEmailContent(result.content || ''),
       confidence_score: result.confidence_score || 8, // Follow-ups generally have higher confidence
       retrieved_context: [],
       reasoning: result.reasoning || 'Follow-up generated',
     };
   } catch (error) {
     return {
-      content: response.content,
+      content: sanitizeEmailContent(response.content),
       confidence_score: 0,
       retrieved_context: [],
       reasoning: 'Failed to parse AI response',

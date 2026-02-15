@@ -6,6 +6,7 @@ import type {
   KnowledgeBaseEmbedding,
   FeedbackLog,
   RetrievalResult,
+  MeetingBooked,
 } from '../types';
 import { DatabaseError } from '../types';
 
@@ -433,6 +434,9 @@ export async function getDashboardMetrics(agentId?: string) {
     .from('replies')
     .select('*', { count: 'exact', head: true })
     .eq('processing_status', 'error');
+  let meetingsQuery = supabaseAdmin
+    .from('meetings_booked')
+    .select('*', { count: 'exact', head: true });
 
   if (agentId) {
     repliesQuery = repliesQuery.eq('agent_id', agentId);
@@ -443,9 +447,10 @@ export async function getDashboardMetrics(agentId?: string) {
     needsApprovalQuery = needsApprovalQuery.eq('agent_id', agentId);
     followupSentQuery = followupSentQuery.eq('agent_id', agentId);
     errorsQuery = errorsQuery.eq('agent_id', agentId);
+    meetingsQuery = meetingsQuery.eq('agent_id', agentId);
   }
 
-  const [totalReplies, interestedReplies, automatedReplies, oooReplies, totalLeads, needsApproval, followupSent, errors] =
+  const [totalReplies, interestedReplies, automatedReplies, oooReplies, totalLeads, needsApproval, followupSent, errors, meetings] =
     await Promise.all([
       repliesQuery,
       interestedQuery,
@@ -455,6 +460,7 @@ export async function getDashboardMetrics(agentId?: string) {
       needsApprovalQuery,
       followupSentQuery,
       errorsQuery,
+      meetingsQuery,
     ]);
 
   return {
@@ -465,53 +471,88 @@ export async function getDashboardMetrics(agentId?: string) {
     auto_responded: (totalLeads.count || 0) - (needsApproval.count || 0),
     followup_sent: followupSent.count || 0,
     ooo_replies: oooReplies.count || 0,
+    meetings_booked: meetings.count || 0,
     errors: errors.count || 0,
     false_positives: 0, // TODO: Calculate based on feedback logs
   };
 }
 
 export async function getChartData(agentId?: string, dateFrom?: string, dateTo?: string) {
-  let query = supabaseAdmin
+  const defaultStart = new Date();
+  defaultStart.setDate(defaultStart.getDate() - 30);
+  const startDate = dateFrom || defaultStart.toISOString();
+
+  let repliesQuery = supabaseAdmin
     .from('replies')
     .select('received_at, is_truly_interested, corrected_status')
+    .gte('received_at', startDate)
     .order('received_at', { ascending: true });
 
-  if (agentId) query = query.eq('agent_id', agentId);
+  let meetingsQuery = supabaseAdmin
+    .from('meetings_booked')
+    .select('booked_at')
+    .gte('booked_at', startDate)
+    .order('booked_at', { ascending: true });
 
-  if (dateFrom) {
-    query = query.gte('received_at', dateFrom);
-  } else {
-    // Default to last 30 days
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
-    query = query.gte('received_at', startDate.toISOString());
+  if (agentId) {
+    repliesQuery = repliesQuery.eq('agent_id', agentId);
+    meetingsQuery = meetingsQuery.eq('agent_id', agentId);
   }
 
   if (dateTo) {
-    query = query.lte('received_at', dateTo);
+    repliesQuery = repliesQuery.lte('received_at', dateTo);
+    meetingsQuery = meetingsQuery.lte('booked_at', dateTo);
   }
 
-  const { data, error } = await query;
+  const [repliesResult, meetingsResult] = await Promise.all([repliesQuery, meetingsQuery]);
 
-  if (error) throw new DatabaseError('Failed to get chart data', error);
+  if (repliesResult.error) throw new DatabaseError('Failed to get chart data', repliesResult.error);
 
   // Group by date
-  const groupedData: Record<string, { positive: number; ooo: number; total: number }> = {};
+  const groupedData: Record<string, { positive: number; ooo: number; total: number; meetings: number }> = {};
 
-  data?.forEach((reply: any) => {
+  repliesResult.data?.forEach((reply: any) => {
     const date = reply.received_at.split('T')[0];
     if (!groupedData[date]) {
-      groupedData[date] = { positive: 0, ooo: 0, total: 0 };
+      groupedData[date] = { positive: 0, ooo: 0, total: 0, meetings: 0 };
     }
     groupedData[date].total++;
     if (reply.is_truly_interested) groupedData[date].positive++;
     if (reply.corrected_status === 'out_of_office') groupedData[date].ooo++;
   });
 
-  return Object.entries(groupedData).map(([date, counts]) => ({
-    date,
-    positive_responses: counts.positive,
-    ooo_responses: counts.ooo,
-    total_responses: counts.total,
-  }));
+  // Add meetings data
+  meetingsResult.data?.forEach((meeting: any) => {
+    const date = meeting.booked_at.split('T')[0];
+    if (!groupedData[date]) {
+      groupedData[date] = { positive: 0, ooo: 0, total: 0, meetings: 0 };
+    }
+    groupedData[date].meetings++;
+  });
+
+  return Object.entries(groupedData)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, counts]) => ({
+      date,
+      positive_responses: counts.positive,
+      ooo_responses: counts.ooo,
+      total_responses: counts.total,
+      meetings_booked: counts.meetings,
+    }));
+}
+
+// =====================================================
+// MEETINGS BOOKED QUERIES
+// =====================================================
+
+export async function createMeetingBooked(meeting: Omit<MeetingBooked, 'id' | 'created_at'>) {
+  const { data, error } = await supabaseAdmin
+    .from('meetings_booked')
+    // @ts-ignore - Supabase generated types issue
+    .insert(meeting)
+    .select()
+    .single();
+
+  if (error) throw new DatabaseError('Failed to create meeting record', error);
+  return data as MeetingBooked;
 }

@@ -12,10 +12,11 @@ import {
   updateInterestedLead,
   getAllAgents,
   getInterestedLeadByEmail,
+  createMeetingBooked,
 } from '@/lib/supabase/queries';
 import { parseEmailThread } from '@/lib/utils/email-parser';
 import { refreshConversationThread } from '@/lib/platforms/thread-sync';
-import { sendSlackNotification } from '@/lib/integrations/slack';
+import { sendSlackNotification, sendMeetingBookedNotification } from '@/lib/integrations/slack';
 import { executeBookingAction } from '@/lib/integrations/booking';
 import type { ConversationMessage } from '@/lib/types';
 import { addDays } from 'date-fns';
@@ -503,9 +504,48 @@ export async function POST(
             attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
           };
           const bookingResult = await executeBookingAction(agent, bookingAction);
-          if (bookingResult.success) {
+          if (bookingResult.success && bookingResult.meetingUrl) {
             console.log(`[Webhook] Booking action executed:`, bookingResult);
-          } else {
+
+            // Record the meeting in the database
+            const leadRecord_existing = existingLead || null;
+            try {
+              await createMeetingBooked({
+                agent_id: agent.id,
+                lead_id: leadRecord_existing?.id,
+                lead_email: reply.from_email_address,
+                lead_name: reply.from_name,
+                meeting_url: bookingResult.meetingUrl,
+                booking_platform: agent.booking_platform,
+                booked_at: new Date().toISOString(),
+              });
+              console.log(`[Webhook] Meeting recorded for ${reply.from_email_address}`);
+            } catch (meetingError) {
+              console.warn('[Webhook] Failed to record meeting:', meetingError);
+            }
+
+            // Send Slack notification for meeting booked
+            if (agent.slack_webhook_url) {
+              try {
+                const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+                  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+                  : process.env.VERCEL_URL
+                    ? `https://${process.env.VERCEL_URL}`
+                    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+                await sendMeetingBookedNotification(agent.slack_webhook_url, {
+                  leadName: reply.from_name,
+                  leadEmail: reply.from_email_address,
+                  agentName: agent.name,
+                  meetingUrl: bookingResult.meetingUrl,
+                  inboxUrl: `${appUrl}/inbox`,
+                });
+                console.log(`[Webhook] Slack meeting notification sent for ${reply.from_email_address}`);
+              } catch (slackError) {
+                console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
+              }
+            }
+          } else if (!bookingResult.success) {
             console.warn(`[Webhook] Booking action failed:`, bookingResult.error);
           }
         } catch (bookingError) {

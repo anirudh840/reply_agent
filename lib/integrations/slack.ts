@@ -136,6 +136,86 @@ export async function sendSlackNotification(
   }
 }
 
+export async function sendMeetingBookedNotification(
+  webhookUrl: string,
+  payload: {
+    leadName?: string;
+    leadEmail: string;
+    agentName: string;
+    meetingUrl?: string;
+    inboxUrl: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const blocks = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: ':calendar: Meeting Booked!',
+          emoji: true,
+        },
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*Lead:*\n${payload.leadName || 'Unknown'} (${payload.leadEmail})`,
+          },
+          {
+            type: 'mrkdwn',
+            text: `*Agent:*\n${payload.agentName}`,
+          },
+        ],
+      },
+      ...(payload.meetingUrl
+        ? [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*Meeting Link:*\n${payload.meetingUrl}`,
+            },
+          }]
+        : []),
+      { type: 'divider' },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: 'View in Inbox',
+              emoji: true,
+            },
+            url: payload.inboxUrl,
+            style: 'primary',
+          },
+        ],
+      },
+    ];
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `:calendar: Meeting booked with ${payload.leadName || payload.leadEmail} (${payload.agentName})`,
+        blocks,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return { success: false, error: `Slack API error: ${response.status} ${text}` };
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to send Slack notification' };
+  }
+}
+
 export async function testSlackWebhook(
   webhookUrl: string
 ): Promise<{ success: boolean; error?: string }> {

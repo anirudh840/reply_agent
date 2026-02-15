@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Reply,
   Clock,
+  Calendar,
+  ChevronDown,
 } from 'lucide-react';
 import {
   LineChart,
@@ -33,8 +35,14 @@ interface Metrics {
   auto_responded: number;
   followup_sent: number;
   ooo_replies: number;
+  meetings_booked: number;
   errors: number;
   false_positives: number;
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
 }
 
 export default function DashboardPage() {
@@ -43,6 +51,21 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+
+  // Fetch agents list on mount
+  useEffect(() => {
+    fetch('/api/agents')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setAgents(data.data.map((a: any) => ({ id: a.id, name: a.name })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchMetrics = async () => {
     try {
@@ -50,6 +73,7 @@ export default function DashboardPage() {
       const params = new URLSearchParams();
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
+      if (selectedAgentId) params.set('agent_id', selectedAgentId);
 
       const response = await fetch(`/api/dashboard/metrics?${params.toString()}`);
       const data = await response.json();
@@ -67,7 +91,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchMetrics();
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, selectedAgentId]);
+
+  const selectedAgentName = selectedAgentId
+    ? agents.find((a) => a.id === selectedAgentId)?.name || 'Agent'
+    : 'All Agents';
 
   const metricCards = [
     {
@@ -76,13 +104,23 @@ export default function DashboardPage() {
       icon: Mail,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
+      highlight: false,
     },
     {
       title: 'Interested Leads',
       value: metrics?.interested_replies || 0,
       icon: TrendingUp,
-      color: 'text-green-600',
-      bg: 'bg-green-50',
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      highlight: true,
+    },
+    {
+      title: 'Meetings Booked',
+      value: metrics?.meetings_booked || 0,
+      icon: Calendar,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+      highlight: true,
     },
     {
       title: 'Followup Sent',
@@ -90,6 +128,7 @@ export default function DashboardPage() {
       icon: Reply,
       color: 'text-orange-600',
       bg: 'bg-orange-50',
+      highlight: false,
     },
     {
       title: 'Needs Approval',
@@ -97,6 +136,7 @@ export default function DashboardPage() {
       icon: AlertCircle,
       color: 'text-yellow-600',
       bg: 'bg-yellow-50',
+      highlight: false,
     },
     {
       title: 'Auto Responded',
@@ -104,6 +144,7 @@ export default function DashboardPage() {
       icon: CheckCircle,
       color: 'text-green-600',
       bg: 'bg-green-50',
+      highlight: false,
     },
     {
       title: 'OOO Replies',
@@ -111,13 +152,7 @@ export default function DashboardPage() {
       icon: Clock,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
-    },
-    {
-      title: 'Automated Replies',
-      value: metrics?.automated_replies || 0,
-      icon: Mail,
-      color: 'text-gray-600',
-      bg: 'bg-gray-50',
+      highlight: false,
     },
     {
       title: 'Errors',
@@ -125,6 +160,7 @@ export default function DashboardPage() {
       icon: XCircle,
       color: 'text-red-600',
       bg: 'bg-red-50',
+      highlight: false,
     },
   ];
 
@@ -146,10 +182,61 @@ export default function DashboardPage() {
             Overview of your email reply automation
           </p>
         </div>
-        <Button onClick={fetchMetrics} disabled={loading}>
-          <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : '')} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Agent Filter Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setAgentDropdownOpen(!agentDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors min-w-[160px]"
+            >
+              <span className="truncate">{selectedAgentName}</span>
+              <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            </button>
+            {agentDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setAgentDropdownOpen(false)}
+                />
+                <div className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 max-h-64 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setSelectedAgentId('');
+                      setAgentDropdownOpen(false);
+                    }}
+                    className={cn(
+                      'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors',
+                      !selectedAgentId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                    )}
+                  >
+                    All Agents
+                  </button>
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        setSelectedAgentId(agent.id);
+                        setAgentDropdownOpen(false);
+                      }}
+                      className={cn(
+                        'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors truncate',
+                        selectedAgentId === agent.id
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'text-gray-700'
+                      )}
+                    >
+                      {agent.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <Button onClick={fetchMetrics} disabled={loading}>
+            <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : '')} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {loading && !metrics ? (
@@ -161,7 +248,15 @@ export default function DashboardPage() {
           {/* Metrics Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {metricCards.map((metric) => (
-              <Card key={metric.title} className="overflow-hidden">
+              <Card
+                key={metric.title}
+                className={cn(
+                  'overflow-hidden transition-all',
+                  metric.highlight
+                    ? 'ring-2 ring-offset-1 ring-indigo-200 shadow-md'
+                    : ''
+                )}
+              >
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-gray-600">
                     {metric.title}
@@ -171,7 +266,12 @@ export default function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{metric.value}</div>
+                  <div className={cn(
+                    'text-2xl font-bold',
+                    metric.highlight ? 'text-indigo-900' : ''
+                  )}>
+                    {metric.value}
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -184,7 +284,7 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle className="text-lg">Response Trends</CardTitle>
                   <p className="text-sm text-gray-500 mt-1">
-                    Positive responses, OOO responses, and total responses over time
+                    Responses and meetings booked over time
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -271,12 +371,22 @@ export default function DashboardPage() {
                     />
                     <Line
                       type="monotone"
+                      dataKey="meetings_booked"
+                      name="Meetings Booked"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#6366f1' }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
                       dataKey="ooo_responses"
                       name="OOO Responses"
                       stroke="#a855f7"
-                      strokeWidth={2.5}
-                      dot={{ r: 4, fill: '#a855f7' }}
-                      activeDot={{ r: 6 }}
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#a855f7' }}
+                      activeDot={{ r: 5 }}
+                      strokeDasharray="5 5"
                     />
                   </LineChart>
                 </ResponsiveContainer>

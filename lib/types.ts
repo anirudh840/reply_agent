@@ -262,6 +262,7 @@ export interface DashboardMetrics {
   auto_responded: number;
   followup_sent: number;
   ooo_replies: number;
+  meetings_booked: number;
   errors: number;
   false_positives: number;
 }
@@ -271,6 +272,19 @@ export interface ChartDataPoint {
   positive_responses: number;
   ooo_responses: number;
   total_responses: number;
+  meetings_booked: number;
+}
+
+export interface MeetingBooked {
+  id: string;
+  created_at: string;
+  agent_id: string;
+  lead_id?: string;
+  lead_email: string;
+  lead_name?: string;
+  meeting_url?: string;
+  booking_platform?: string;
+  booked_at: string;
 }
 
 // Filter Types
