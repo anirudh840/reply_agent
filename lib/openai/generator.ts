@@ -1,5 +1,6 @@
 import { createOpenAIClient } from './client';
 import { getFormattedContext } from '../rag/retrieval';
+import { getAvailabilityContext } from '../integrations/booking';
 import type { GeneratedResponse, Agent, InterestedLead, ConversationMessage } from '../types';
 
 const RESPONSE_GENERATION_SYSTEM_PROMPT = `You are an expert sales development representative writing personalized email responses for cold outreach campaigns.
@@ -10,6 +11,7 @@ Your role is to:
 3. Match the tone and context of the conversation
 4. Move the conversation forward towards a meeting/call
 5. Be concise but helpful (aim for 100-200 words)
+6. When calendar availability is provided, reference available time slots and help schedule meetings
 
 CRITICAL REQUIREMENTS:
 - Write ONLY the email body content (no subject lines, no "Subject:" prefix)
@@ -70,6 +72,32 @@ export async function generateResponse(params: {
           .join('\n\n')
       : 'No previous conversation';
 
+  // Fetch calendar availability if booking is configured
+  let availabilitySection = '';
+  const hasBooking = agent.booking_platform && agent.booking_api_key && agent.booking_event_id;
+  if (hasBooking) {
+    try {
+      const availability = await getAvailabilityContext(agent);
+      if (availability) {
+        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR INSTRUCTIONS:\n- If the lead asks about scheduling or availability, reference these time slots.\n- If the lead suggests a specific time and it's available, book it by setting booking_action to "book" with their details.\n- If the suggested time is NOT available, suggest the 2-3 closest available slots.\n- If using Calendly, you CANNOT book directly — share the booking link instead (use booking_action "suggest_link").\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com (direct booking supported)' : 'Calendly (share link only)'}\n`;
+      }
+    } catch (error) {
+      console.warn('[Generator] Failed to fetch availability:', error);
+    }
+  }
+
+  const bookingJsonSection = hasBooking
+    ? `,
+  "booking_action": {
+    "action": "none" | "book" | "suggest_link",
+    "date": "YYYY-MM-DD (if booking)",
+    "start_time": "HH:MM (if booking)",
+    "timezone": "timezone string (if booking)",
+    "attendee_name": "lead name (if booking)",
+    "attendee_email": "lead email (if booking)"
+  }`
+    : '';
+
   const userPrompt = `Generate a response for this email from a cold outreach lead:
 
 LEAD INFORMATION:
@@ -90,7 +118,7 @@ ${agent.knowledge_base.product_description || 'No product description available'
 
 INSTRUCTIONS:
 ${agent.knowledge_base.custom_instructions || 'Respond professionally and helpfully'}
-
+${availabilitySection}
 Generate an appropriate email response that:
 1. Addresses their questions/concerns
 2. Uses information from the knowledge base
@@ -104,7 +132,7 @@ Respond in JSON format with:
 {
   "content": "The complete email body text ready to send (no placeholders, no subject line, no signature)",
   "confidence_score": number (0-10, where 10 is highest confidence),
-  "reasoning": "Brief explanation of why you chose this response and your confidence level"
+  "reasoning": "Brief explanation of why you chose this response and your confidence level"${bookingJsonSection}
 }`;
 
   const response = await openaiClient.generateCompletion({
@@ -125,6 +153,9 @@ Respond in JSON format with:
       confidence_score: result.confidence_score || 5,
       retrieved_context: results.map((r) => r.content_text),
       reasoning: result.reasoning || 'No reasoning provided',
+      booking_action: result.booking_action && result.booking_action.action !== 'none'
+        ? result.booking_action
+        : undefined,
     };
   } catch (error) {
     // Fallback if JSON parsing fails

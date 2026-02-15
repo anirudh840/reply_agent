@@ -7,6 +7,7 @@ export type { PlatformType } from './platforms/types';
 
 // Agent Types
 export type AgentMode = 'fully_automated' | 'human_in_loop';
+export type BookingPlatform = 'cal_com' | 'calendly';
 
 export interface Agent {
   id: string;
@@ -30,6 +31,13 @@ export interface Agent {
   last_sync_at?: string;
   webhook_id?: string; // Unique ID for this agent's webhook URL
   webhook_secret?: string; // Secret for webhook verification (optional)
+  // Slack Integration (optional)
+  slack_webhook_url?: string;
+  // Booking Integration (optional)
+  booking_platform?: BookingPlatform;
+  booking_api_key?: string;
+  booking_event_id?: string;
+  booking_link?: string;
 }
 
 export interface KnowledgeBase {
@@ -206,6 +214,24 @@ export interface GeneratedResponse {
   confidence_score: number;
   retrieved_context: string[];
   reasoning: string;
+  booking_action?: BookingAction;
+}
+
+// Booking Types
+export interface BookingAction {
+  action: 'book' | 'suggest_link' | 'none';
+  date?: string;
+  start_time?: string;
+  timezone?: string;
+  attendee_name?: string;
+  attendee_email?: string;
+}
+
+export interface AvailableSlot {
+  date: string;
+  start_time: string;
+  end_time: string;
+  timezone: string;
 }
 
 export interface EmbeddingResult {

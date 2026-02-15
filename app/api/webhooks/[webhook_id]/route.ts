@@ -15,6 +15,8 @@ import {
 } from '@/lib/supabase/queries';
 import { parseEmailThread } from '@/lib/utils/email-parser';
 import { refreshConversationThread } from '@/lib/platforms/thread-sync';
+import { sendSlackNotification } from '@/lib/integrations/slack';
+import { executeBookingAction } from '@/lib/integrations/booking';
 import type { ConversationMessage } from '@/lib/types';
 
 // =====================================================
@@ -486,6 +488,20 @@ export async function POST(
         conversationHistory: conversationThread.slice(1), // Pass quoted messages as history
       });
 
+      // Execute booking action if AI requested one
+      if (generatedResponse.booking_action) {
+        try {
+          const bookingResult = await executeBookingAction(agent, generatedResponse.booking_action);
+          if (bookingResult.success) {
+            console.log(`[Webhook] Booking action executed:`, bookingResult);
+          } else {
+            console.warn(`[Webhook] Booking action failed:`, bookingResult.error);
+          }
+        } catch (bookingError) {
+          console.warn('[Webhook] Booking action error:', bookingError);
+        }
+      }
+
       // Determine if approval is needed and why
       const isLowConfidence = generatedResponse.confidence_score <= agent.confidence_threshold;
       const isHumanInLoop = agent.mode === 'human_in_loop';
@@ -569,6 +585,36 @@ export async function POST(
           console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}`);
         } catch (sendError) {
           console.error('[Webhook] Error sending auto-reply:', sendError);
+        }
+      }
+
+      // Send Slack notification for interested leads (non-blocking)
+      if (agent.slack_webhook_url) {
+        try {
+          const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+            ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+            : process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+          await sendSlackNotification(agent.slack_webhook_url, {
+            leadName: reply.from_name,
+            leadEmail: reply.from_email_address,
+            leadCompany: reply.lead_data?.company_name || reply.lead_data?.company,
+            leadMessage: (reply.text_body || '').slice(0, 500),
+            categorization: {
+              is_interested: categorization.is_truly_interested,
+              confidence_score: categorization.confidence_score,
+              reasoning: categorization.reasoning,
+            },
+            responseAction: needsApproval ? 'needs_approval' : 'auto_responded',
+            agentName: agent.name,
+            inboxUrl: `${appUrl}/inbox`,
+            generatedResponse: generatedResponse.content,
+          });
+          console.log(`[Webhook] Slack notification sent for lead ${reply.from_email_address}`);
+        } catch (slackError) {
+          console.warn('[Webhook] Failed to send Slack notification:', slackError);
         }
       }
 

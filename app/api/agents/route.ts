@@ -138,6 +138,13 @@ export async function POST(request: NextRequest) {
       last_sync_at: undefined,
       webhook_id: webhookId,
       webhook_secret: undefined, // Can be added later for verification
+      // Slack Integration (optional)
+      slack_webhook_url: body.slack_webhook_url || undefined,
+      // Booking Integration (optional)
+      booking_platform: body.booking_platform || undefined,
+      booking_api_key: body.booking_api_key || undefined,
+      booking_event_id: body.booking_event_id || undefined,
+      booking_link: body.booking_link || undefined,
     };
 
     const agent = await createAgent(agentData);

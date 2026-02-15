@@ -27,6 +27,19 @@ export default function NewAgentPage() {
   const [emailbisonApiKey, setEmailbisonApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
 
+  // Step 2b: Slack Integration (optional)
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+  const [testingSlack, setTestingSlack] = useState(false);
+  const [slackTestResult, setSlackTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  // Step 2c: Booking Integration (optional)
+  const [bookingPlatform, setBookingPlatform] = useState<'' | 'cal_com' | 'calendly'>('');
+  const [bookingApiKey, setBookingApiKey] = useState('');
+  const [bookingEventId, setBookingEventId] = useState('');
+  const [bookingLink, setBookingLink] = useState('');
+  const [eventTypes, setEventTypes] = useState<Array<{ id: string; name: string; duration: number; booking_url?: string }>>([]);
+  const [loadingEventTypes, setLoadingEventTypes] = useState(false);
+
   // Step 3: Knowledge Base
   const [timezone, setTimezone] = useState('UTC');
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -164,6 +177,55 @@ export default function NewAgentPage() {
     }
   };
 
+  // Slack Test Function
+  const handleTestSlack = async () => {
+    if (!slackWebhookUrl) return;
+    setTestingSlack(true);
+    setSlackTestResult(null);
+    try {
+      const response = await fetch('/api/integrations/slack/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slack_webhook_url: slackWebhookUrl }),
+      });
+      const data = await response.json();
+      setSlackTestResult(data);
+    } catch {
+      setSlackTestResult({ success: false, error: 'Network error' });
+    } finally {
+      setTestingSlack(false);
+    }
+  };
+
+  // Fetch Booking Event Types
+  const handleFetchEventTypes = async () => {
+    if (!bookingPlatform || !bookingApiKey) return;
+    setLoadingEventTypes(true);
+    setEventTypes([]);
+    setBookingEventId('');
+    setBookingLink('');
+    try {
+      const response = await fetch('/api/integrations/booking/event-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_platform: bookingPlatform, booking_api_key: bookingApiKey }),
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        setEventTypes(data.data);
+        if (data.data.length === 0) {
+          alert('No event types found in your account. Please create one first.');
+        }
+      } else {
+        alert(`Failed to fetch event types: ${data.error || 'Unknown error'}`);
+      }
+    } catch {
+      alert('Failed to connect to booking platform. Check your API key.');
+    } finally {
+      setLoadingEventTypes(false);
+    }
+  };
+
   // Fetch Test Results Function
   const fetchTestResults = async () => {
     if (!emailbisonApiKey || !openaiApiKey) {
@@ -265,6 +327,11 @@ export default function NewAgentPage() {
               })),
             },
         confidence_threshold: confidenceThreshold,
+        slack_webhook_url: slackWebhookUrl || undefined,
+        booking_platform: bookingPlatform || undefined,
+        booking_api_key: bookingApiKey || undefined,
+        booking_event_id: bookingEventId || undefined,
+        booking_link: bookingLink || undefined,
       };
 
       const response = await fetch('/api/agents', {
@@ -492,6 +559,154 @@ export default function NewAgentPage() {
                 </div>
               </div>
             </div>
+
+            {/* Slack Integration (Optional) */}
+            <details className="rounded-md border">
+              <summary className="cursor-pointer p-4 font-medium">
+                Slack Notifications (Optional)
+              </summary>
+              <div className="border-t p-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Get notified in Slack when interested leads reply to your campaigns.
+                </p>
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Slack Incoming Webhook URL</label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="https://hooks.slack.com/services/T.../B.../..."
+                      value={slackWebhookUrl}
+                      onChange={(e) => {
+                        setSlackWebhookUrl(e.target.value);
+                        setSlackTestResult(null);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleTestSlack}
+                      disabled={testingSlack || !slackWebhookUrl}
+                      className="min-w-[100px]"
+                    >
+                      {testingSlack ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Test'
+                      )}
+                    </Button>
+                  </div>
+                  {slackTestResult && (
+                    <div className={`mt-2 flex items-center gap-2 text-sm ${slackTestResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                      {slackTestResult.success ? (
+                        <><Check className="h-4 w-4" /> Connected! Check your Slack channel.</>
+                      ) : (
+                        <><X className="h-4 w-4" /> {slackTestResult.error || 'Connection failed'}</>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Create an Incoming Webhook in your Slack workspace settings and paste the URL here.
+                  </p>
+                </div>
+              </div>
+            </details>
+
+            {/* Booking Integration (Optional) */}
+            <details className="rounded-md border">
+              <summary className="cursor-pointer p-4 font-medium">
+                Calendar Booking (Optional)
+              </summary>
+              <div className="border-t p-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Let the AI check your calendar availability and book meetings with interested leads.
+                </p>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Booking Platform</label>
+                  <select
+                    value={bookingPlatform}
+                    onChange={(e) => {
+                      setBookingPlatform(e.target.value as '' | 'cal_com' | 'calendly');
+                      setEventTypes([]);
+                      setBookingEventId('');
+                      setBookingLink('');
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">None</option>
+                    <option value="cal_com">Cal.com</option>
+                    <option value="calendly">Calendly</option>
+                  </select>
+                </div>
+
+                {bookingPlatform && (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">
+                        {bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} API Key
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder={`Enter your ${bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} API key`}
+                          value={bookingApiKey}
+                          onChange={(e) => setBookingApiKey(e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleFetchEventTypes}
+                          disabled={loadingEventTypes || !bookingApiKey}
+                          className="min-w-[140px]"
+                        >
+                          {loadingEventTypes ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> Loading...</>
+                          ) : (
+                            'Fetch Events'
+                          )}
+                        </Button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {bookingPlatform === 'cal_com'
+                          ? 'Get from: cal.com → Settings → Developer → API Keys'
+                          : 'Get from: calendly.com → Integrations → API & Webhooks → Personal Access Tokens'}
+                      </p>
+                    </div>
+
+                    {eventTypes.length > 0 && (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium">Select Event Type</label>
+                        <select
+                          value={bookingEventId}
+                          onChange={(e) => {
+                            setBookingEventId(e.target.value);
+                            const selected = eventTypes.find((et) => et.id === e.target.value);
+                            if (selected?.booking_url) {
+                              setBookingLink(selected.booking_url);
+                            }
+                          }}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="">Choose an event...</option>
+                          {eventTypes.map((et) => (
+                            <option key={et.id} value={et.id}>
+                              {et.name} ({et.duration} min)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {bookingPlatform === 'calendly' && bookingEventId && (
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                        <p className="text-xs text-amber-800">
+                          Calendly does not support programmatic booking. The AI will check availability and share your scheduling link with leads.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
           </div>
         );
 
