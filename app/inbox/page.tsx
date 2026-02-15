@@ -46,6 +46,7 @@ export default function InboxPage() {
   const [selectedLead, setSelectedLead] = useState<InterestedLead | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [markingBooked, setMarkingBooked] = useState(false);
 
   // Category navigation
   const [selectedCategory, setSelectedCategory] = useState<Category>('all');
@@ -420,6 +421,33 @@ export default function InboxPage() {
 
   const handleRemoveAttachment = (url: string) => {
     setAttachments(attachments.filter((a) => a.url !== url));
+  };
+
+  const handleMarkAsBooked = async () => {
+    if (!selectedLead) return;
+
+    setMarkingBooked(true);
+    try {
+      const response = await fetch('/api/leads/mark-booked', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: selectedLead.id }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('Meeting marked as booked!');
+        fetchLeads();
+      } else {
+        toast.error(`Failed: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error marking as booked:', error);
+      toast.error('Failed to mark as booked');
+    } finally {
+      setMarkingBooked(false);
+    }
   };
 
   // Get category counts
@@ -1387,6 +1415,21 @@ export default function InboxPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mb-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Actions</h4>
+                    <Button
+                      onClick={handleMarkAsBooked}
+                      disabled={markingBooked}
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs"
+                    >
+                      <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                      {markingBooked ? 'Marking...' : 'Mark as Meeting Booked'}
+                    </Button>
                   </div>
                 </div>
               </div>

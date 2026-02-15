@@ -108,7 +108,7 @@ export async function generateResponse(params: {
     try {
       const availability = await getAvailabilityContext(agent);
       if (availability) {
-        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR BOOKING INSTRUCTIONS (CRITICAL — READ CAREFULLY):\n- You MUST set booking_action when the lead mentions scheduling, booking, meeting, call, invite, calendar, or a specific time/date.\n- If the lead says ANYTHING about wanting to meet, schedule, book, or provides a time — you MUST set booking_action.action to "book".\n- Set booking_action.date to the date they mentioned (YYYY-MM-DD format). "Tomorrow" means the next calendar day.\n- Set booking_action.start_time to the time in HH:MM 24-hour format.\n- Set booking_action.timezone to the timezone they mentioned (e.g., "Asia/Kolkata" for IST, "America/New_York" for ET).\n- If the suggested time is NOT available, suggest 2-3 closest available slots AND still set booking_action.action to "suggest_link".\n- NEVER just write about scheduling in the email without also setting booking_action. The booking_action field is what actually triggers the invite.\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com' : 'Calendly'}\n\nRESPONSE RULES WHEN booking_action.action = "book":\n- Write a short confirmation like "I'll send the calendar invite for [date] at [time] shortly."\n- Do NOT include any booking link or scheduling URL in the email body — the system handles that separately.\n- Do NOT mention Calendly, Cal.com, or any booking platform name in the email.\n- Keep the response brief (2-3 sentences) — just confirm the time and express enthusiasm for the meeting.\n`;
+        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR BOOKING INSTRUCTIONS (CRITICAL — READ CAREFULLY):\n- You MUST set booking_action when the lead mentions scheduling, booking, meeting, call, invite, calendar, or a specific time/date.\n- If the lead says ANYTHING about wanting to meet, schedule, book, or provides a time — you MUST set booking_action.\n- IMPORTANT: Check if the EXACT time the lead requested is available in the CALENDAR AVAILABILITY above.\n  - If YES: set booking_action.action to "book" with their exact requested time.\n  - If NO: set booking_action.action to "suggest_link" and in the email body, politely say their requested time is not available and suggest 2-3 of the closest available slots from the calendar. Do NOT confirm a time that is not in the availability list.\n- NEVER confirm a time that is NOT in the availability list above. That would be a lie.\n- NEVER substitute a different time from a previous conversation. Always use the time from the LATEST MESSAGE.\n- Set booking_action.date to YYYY-MM-DD format. "Tomorrow" means ${new Date(Date.now() + 86400000).toISOString().split('T')[0]}.\n- Set booking_action.start_time to HH:MM in 24-hour format.\n- Set booking_action.timezone to IANA timezone (e.g., "Asia/Kolkata" for IST, "America/New_York" for ET).\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com' : 'Calendly'}\n\nRESPONSE RULES WHEN booking_action.action = "book":\n- Write a short confirmation referencing the EXACT time from the LATEST MESSAGE.\n- Do NOT include any booking link or scheduling URL in the email body.\n- Do NOT mention Calendly, Cal.com, or any platform name.\n- Keep the response brief (2-3 sentences).\n\nRESPONSE RULES WHEN booking_action.action = "suggest_link" (time not available):\n- Politely say the requested time is not available.\n- Suggest 2-3 closest available times from the CALENDAR AVAILABILITY list.\n- Do NOT include any booking URL — the system appends it automatically.\n`;
       }
     } catch (error) {
       console.warn('[Generator] Failed to fetch availability:', error);
@@ -130,7 +130,7 @@ export async function generateResponse(params: {
   const today = new Date().toISOString().split('T')[0];
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
-  const userPrompt = `Generate a response for this email from a cold outreach lead:
+  const userPrompt = `Generate a response for this email from a cold outreach lead.
 
 TODAY'S DATE: ${today} (so "tomorrow" = ${tomorrow})
 
@@ -138,10 +138,13 @@ LEAD INFORMATION:
 - Name: ${leadName || 'Unknown'}
 - Email: ${leadEmail}
 
-THEIR LATEST MESSAGE:
+=== THEIR LATEST MESSAGE (THIS IS WHAT YOU ARE RESPONDING TO) ===
 ${leadMessage}
+=== END OF LATEST MESSAGE ===
 
-CONVERSATION HISTORY:
+IMPORTANT: Your response MUST address the LATEST MESSAGE above. The conversation history below is for context only — do NOT confuse details from older messages with the latest one. If the latest message mentions a specific time, date, or request, respond to EXACTLY what they said in the latest message, not what was discussed before.
+
+CONVERSATION HISTORY (for background context only):
 ${historyString}
 
 RELEVANT KNOWLEDGE BASE CONTEXT:
@@ -154,7 +157,7 @@ INSTRUCTIONS:
 ${agent.knowledge_base.custom_instructions || 'Respond professionally and helpfully'}
 ${availabilitySection}
 Generate an appropriate email response that:
-1. Addresses their questions/concerns
+1. Directly addresses the LATEST MESSAGE — use the exact time/date/details they mentioned
 2. Uses information from the knowledge base
 3. Includes a clear next step or call-to-action
 4. Maintains a professional yet friendly tone
