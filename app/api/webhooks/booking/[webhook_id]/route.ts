@@ -85,13 +85,14 @@ export async function POST(
     // Normalize the payload
     const booking = normalizeBookingPayload(body);
     if (!booking) {
-      console.warn('[BookingWebhook] Unrecognized payload format:', JSON.stringify(body).slice(0, 500));
-      return NextResponse.json({ error: 'Unrecognized payload format' }, { status: 400 });
+      // Cal.com and Calendly send test/ping payloads — respond 200 so verification passes
+      console.log('[BookingWebhook] Ping or unrecognized payload, responding 200:', JSON.stringify(body).slice(0, 300));
+      return NextResponse.json({ success: true, message: 'Webhook received (ping/test)' });
     }
 
     if (!booking.attendeeEmail) {
       console.warn('[BookingWebhook] No attendee email in payload');
-      return NextResponse.json({ error: 'No attendee email found' }, { status: 400 });
+      return NextResponse.json({ success: true, message: 'No attendee email, skipped' });
     }
 
     console.log(`[BookingWebhook] Booking event: ${booking.attendeeName} (${booking.attendeeEmail}) via ${booking.platform}`);

@@ -157,7 +157,7 @@ export class CalComClient {
       method: 'POST',
       body: JSON.stringify({
         subscriberUrl,
-        eventTriggers: ['BOOKING_CREATED'],
+        triggers: ['BOOKING_CREATED'],
         active: true,
       }),
     });
