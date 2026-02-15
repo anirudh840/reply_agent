@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInterestedLead, updateInterestedLead, getAgent } from '@/lib/supabase/queries';
 import { createClientForAgent } from '@/lib/platforms';
+import { refreshConversationThread } from '@/lib/platforms/thread-sync';
 
 /**
  * POST /api/leads/send-message
@@ -63,21 +64,23 @@ export async function POST(request: NextRequest) {
       attachments: attachments || [],
     });
 
-    // Update lead record
-    const updatedThread = [
-      ...lead.conversation_thread,
-      {
-        role: 'agent' as const,
+    const now = new Date().toISOString();
+
+    // Refresh thread from the platform API to get the complete conversation
+    const refreshedThread = await refreshConversationThread({
+      lead,
+      agent,
+      sentMessage: {
         content: message,
-        timestamp: new Date().toISOString(),
-        emailbison_message_id: sendResult.message_id,
+        timestamp: now,
+        message_id: sendResult.message_id,
       },
-    ];
+    });
 
     await updateInterestedLead(lead_id, {
-      conversation_thread: updatedThread,
+      conversation_thread: refreshedThread,
       last_response_sent: message,
-      last_response_sent_at: new Date().toISOString(),
+      last_response_sent_at: now,
       needs_approval: false,
     });
 

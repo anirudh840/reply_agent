@@ -24,6 +24,15 @@ CRITICAL REQUIREMENTS:
 - Match the formality level of the lead's message
 - Reference specific points from their message to show you read it
 
+EMAIL FORMATTING (VERY IMPORTANT):
+- Structure the email with clear, short paragraphs (2-3 sentences each)
+- Use blank lines between paragraphs for readability
+- Start with a personalized greeting line (e.g., "Hi [Name],")
+- End with a clear call-to-action on its own line
+- Add a sign-off like "Best," or "Cheers," on its own line followed by a blank line
+- NEVER write the entire email as one long paragraph
+- Each distinct thought or point should be its own paragraph
+
 Provide your response in JSON format with the email content and a confidence score.`;
 
 /**

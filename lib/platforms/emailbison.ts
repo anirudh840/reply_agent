@@ -139,8 +139,13 @@ export class EmailBisonClient implements PlatformClient {
   }
 
   async sendReply(params: PlatformSendRequest): Promise<PlatformSendResult> {
+    // Convert plain text newlines to HTML <br> for proper email formatting
+    const htmlMessage = params.message
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+
     const requestBody: any = {
-      message: params.message,
+      message: htmlMessage,
       reply_all: true,
     };
 

@@ -14,6 +14,7 @@ import {
   getInterestedLeadByEmail,
 } from '@/lib/supabase/queries';
 import { parseEmailThread } from '@/lib/utils/email-parser';
+import { refreshConversationThread } from '@/lib/platforms/thread-sync';
 import type { ConversationMessage } from '@/lib/types';
 
 // =====================================================
@@ -539,21 +540,23 @@ export async function POST(
             reply_to_uuid: reply.reply_to_uuid,
           });
 
-          // Update lead record with sent status
-          const updatedThread = [
-            ...interestedLead.conversation_thread,
-            {
-              role: 'agent' as const,
+          const now = new Date().toISOString();
+
+          // Refresh thread from the platform API to get the complete conversation
+          const refreshedThread = await refreshConversationThread({
+            lead: interestedLead,
+            agent,
+            sentMessage: {
               content: generatedResponse.content,
-              timestamp: new Date().toISOString(),
-              emailbison_message_id: sendResult.message_id,
+              timestamp: now,
+              message_id: sendResult.message_id,
             },
-          ];
+          });
 
           await updateInterestedLead(interestedLead.id, {
-            conversation_thread: updatedThread,
+            conversation_thread: refreshedThread,
             last_response_sent: generatedResponse.content,
-            last_response_sent_at: new Date().toISOString(),
+            last_response_sent_at: now,
             needs_approval: false,
           });
 
