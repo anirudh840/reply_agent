@@ -108,7 +108,7 @@ export async function generateResponse(params: {
     try {
       const availability = await getAvailabilityContext(agent);
       if (availability) {
-        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR INSTRUCTIONS:\n- If the lead asks about scheduling or availability, reference these time slots.\n- If the lead suggests a specific time and it's available, book it by setting booking_action to "book" with their details.\n- If the suggested time is NOT available, suggest the 2-3 closest available slots.\n- Both Cal.com and Calendly support direct booking — set booking_action to "book" when the lead requests a specific time.\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com' : 'Calendly'}\n`;
+        availabilitySection = `\nCALENDAR AVAILABILITY (next 7 days):\n${availability}\n\nCALENDAR BOOKING INSTRUCTIONS (CRITICAL — READ CAREFULLY):\n- You MUST set booking_action when the lead mentions scheduling, booking, meeting, call, invite, calendar, or a specific time/date.\n- If the lead says ANYTHING about wanting to meet, schedule, book, or provides a time — you MUST set booking_action.action to "book".\n- Set booking_action.date to the date they mentioned (YYYY-MM-DD format). "Tomorrow" means the next calendar day.\n- Set booking_action.start_time to the time in HH:MM 24-hour format.\n- Set booking_action.timezone to the timezone they mentioned (e.g., "Asia/Kolkata" for IST, "America/New_York" for ET).\n- If the suggested time is NOT available, suggest 2-3 closest available slots AND still set booking_action.action to "suggest_link".\n- NEVER just write about scheduling in the email without also setting booking_action. The booking_action field is what actually creates the calendar invite.\n- Platform: ${agent.booking_platform === 'cal_com' ? 'Cal.com' : 'Calendly'}\n`;
       }
     } catch (error) {
       console.warn('[Generator] Failed to fetch availability:', error);
@@ -118,16 +118,21 @@ export async function generateResponse(params: {
   const bookingJsonSection = hasBooking
     ? `,
   "booking_action": {
-    "action": "none" | "book" | "suggest_link",
-    "date": "YYYY-MM-DD (if booking)",
-    "start_time": "HH:MM (if booking)",
-    "timezone": "timezone string (if booking)",
-    "attendee_name": "lead name (if booking)",
-    "attendee_email": "lead email (if booking)"
+    "action": "book | suggest_link | none (MUST be 'book' if lead mentions a time/date/meeting/call/invite/schedule)",
+    "date": "YYYY-MM-DD (required if action=book, calculate from 'tomorrow', 'next Monday', etc.)",
+    "start_time": "HH:MM in 24-hour format (required if action=book)",
+    "timezone": "IANA timezone, e.g. Asia/Kolkata for IST, America/New_York for ET (required if action=book)",
+    "attendee_name": "the lead's name",
+    "attendee_email": "the lead's email"
   }`
     : '';
 
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
   const userPrompt = `Generate a response for this email from a cold outreach lead:
+
+TODAY'S DATE: ${today} (so "tomorrow" = ${tomorrow})
 
 LEAD INFORMATION:
 - Name: ${leadName || 'Unknown'}

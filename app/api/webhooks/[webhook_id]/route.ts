@@ -504,8 +504,15 @@ export async function POST(
             attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
           };
           const bookingResult = await executeBookingAction(agent, bookingAction);
-          if (bookingResult.success && bookingResult.meetingUrl) {
-            console.log(`[Webhook] Booking action executed:`, bookingResult);
+
+          if (bookingResult.success && (bookingResult.meetingUrl || bookingResult.bookingLink)) {
+            const bookingUrl = bookingResult.meetingUrl || bookingResult.bookingLink!;
+            console.log(`[Webhook] Booking action executed, URL: ${bookingUrl}`);
+
+            // Append booking link to the AI response so the lead can book
+            if (!generatedResponse.content.includes(bookingUrl)) {
+              generatedResponse.content += `\n\nHere's the link to book the meeting: ${bookingUrl}`;
+            }
 
             // Record the meeting in the database
             const leadRecord_existing = existingLead || null;
@@ -515,7 +522,7 @@ export async function POST(
                 lead_id: leadRecord_existing?.id,
                 lead_email: reply.from_email_address,
                 lead_name: reply.from_name,
-                meeting_url: bookingResult.meetingUrl,
+                meeting_url: bookingUrl,
                 booking_platform: agent.booking_platform,
                 booked_at: new Date().toISOString(),
               });
@@ -537,7 +544,7 @@ export async function POST(
                   leadName: reply.from_name,
                   leadEmail: reply.from_email_address,
                   agentName: agent.name,
-                  meetingUrl: bookingResult.meetingUrl,
+                  meetingUrl: bookingUrl,
                   inboxUrl: `${appUrl}/inbox`,
                 });
                 console.log(`[Webhook] Slack meeting notification sent for ${reply.from_email_address}`);
@@ -547,9 +554,18 @@ export async function POST(
             }
           } else if (!bookingResult.success) {
             console.warn(`[Webhook] Booking action failed:`, bookingResult.error);
+            // Fallback: append static booking link to response if available
+            if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+              generatedResponse.content += `\n\nYou can book a time here: ${agent.booking_link}`;
+              console.log(`[Webhook] Appended fallback booking link to response`);
+            }
           }
         } catch (bookingError) {
           console.warn('[Webhook] Booking action error:', bookingError);
+          // Fallback: append static booking link to response if available
+          if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+            generatedResponse.content += `\n\nYou can book a time here: ${agent.booking_link}`;
+          }
         }
       }
 

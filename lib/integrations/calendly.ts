@@ -103,35 +103,26 @@ export class CalendlyClient {
   }
 
   /**
-   * Create a booking using Calendly's Scheduling API (Create Event Invitee).
-   * Requires the user to be on a paid Calendly plan.
+   * Create a single-use scheduling link via Calendly API.
+   * Note: Calendly does NOT support direct programmatic booking creation
+   * via REST API. Instead, we create a scheduling link that the lead can use.
    */
-  async createBooking(params: {
+  async createSchedulingLink(params: {
     eventTypeUri: string;
-    startTime: string;
-    attendeeName: string;
-    attendeeEmail: string;
-    attendeeTimezone: string;
-  }): Promise<CalendlyBookingResult> {
-    const response = await this.request<{ resource: any }>('/invitees', {
+    maxEventCount?: number;
+  }): Promise<{ booking_url: string; owner_type: string }> {
+    const response = await this.request<{ resource: any }>('/scheduling_links', {
       method: 'POST',
       body: JSON.stringify({
-        event_type_uri: params.eventTypeUri,
-        start_time: params.startTime,
-        invitee: {
-          name: params.attendeeName,
-          email: params.attendeeEmail,
-          timezone: params.attendeeTimezone,
-        },
+        max_event_count: params.maxEventCount || 1,
+        owner: params.eventTypeUri,
+        owner_type: 'EventType',
       }),
     });
 
-    const invitee = response.resource;
     return {
-      uri: invitee.uri,
-      event_uri: invitee.event || invitee.scheduled_event?.uri || '',
-      status: invitee.status || 'active',
-      schedulingUrl: invitee.reschedule_url,
+      booking_url: response.resource.booking_url,
+      owner_type: response.resource.owner_type,
     };
   }
 }

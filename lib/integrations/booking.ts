@@ -101,29 +101,30 @@ class CalendlyBookingAdapter implements BookingClient {
     attendeeEmail: string;
   }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
     try {
-      // Build UTC ISO datetime from date + time + timezone
-      const startISO = `${params.date}T${params.startTime}:00`;
-      // Convert to UTC for Calendly API
-      const localDate = new Date(`${startISO}`);
-      // If timezone is given, create proper ISO with Z suffix (Calendly expects UTC)
-      const utcTime = localDate.toISOString();
-
-      const result = await this.client.createBooking({
+      // Calendly doesn't support direct programmatic booking via API.
+      // Create a single-use scheduling link instead.
+      const result = await this.client.createSchedulingLink({
         eventTypeUri: this.agent.booking_event_id!,
-        startTime: utcTime,
-        attendeeName: params.attendeeName,
-        attendeeEmail: params.attendeeEmail,
-        attendeeTimezone: params.timezone,
+        maxEventCount: 1,
       });
 
       return {
         success: true,
-        meetingUrl: result.schedulingUrl,
+        meetingUrl: result.booking_url,
       };
     } catch (error: any) {
+      // If scheduling link creation fails, fall back to the static booking link
+      const fallbackLink = this.agent.booking_link;
+      if (fallbackLink) {
+        console.warn('[Calendly] Scheduling link creation failed, using fallback booking link:', error.message);
+        return {
+          success: true,
+          meetingUrl: fallbackLink,
+        };
+      }
       return {
         success: false,
-        error: error.message || 'Failed to create Calendly booking',
+        error: error.message || 'Failed to create Calendly scheduling link',
       };
     }
   }
