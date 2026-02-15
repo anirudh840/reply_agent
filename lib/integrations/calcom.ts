@@ -1,7 +1,14 @@
 import type { AvailableSlot } from '../types';
 
 const CALCOM_BASE_URL = 'https://api.cal.com';
-const CALCOM_API_VERSION = '2024-06-14';
+
+// Different Cal.com V2 endpoints require different API versions
+const API_VERSIONS = {
+  'event-types': '2024-06-14',
+  bookings: '2024-08-13',
+  slots: '2024-06-14',
+  webhooks: '2024-06-14',
+} as const;
 
 export interface CalComEventType {
   id: number;
@@ -27,15 +34,20 @@ export class CalComClient {
     this.apiKey = apiKey;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {},
+    apiVersion?: string
+  ): Promise<T> {
     const url = `${CALCOM_BASE_URL}${endpoint}`;
+    const version = apiVersion || API_VERSIONS['event-types'];
 
     const response = await fetch(url, {
       ...options,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
-        'cal-api-version': CALCOM_API_VERSION,
+        'cal-api-version': version,
         ...options.headers,
       },
     });
@@ -58,7 +70,11 @@ export class CalComClient {
   }
 
   async getEventTypes(): Promise<CalComEventType[]> {
-    const response = await this.request<{ status: string; data: any[] }>('/v2/event-types');
+    const response = await this.request<{ status: string; data: any[] }>(
+      '/v2/event-types',
+      {},
+      API_VERSIONS['event-types']
+    );
 
     return (response.data || []).map((et: any) => ({
       id: et.id,
@@ -81,7 +97,9 @@ export class CalComClient {
     });
 
     const response = await this.request<{ status: string; data: any }>(
-      `/v2/slots/available?${query.toString()}`
+      `/v2/slots/available?${query.toString()}`,
+      {},
+      API_VERSIONS.slots
     );
 
     const slots: AvailableSlot[] = [];
@@ -120,22 +138,33 @@ export class CalComClient {
     attendeeTimezone: string;
     notes?: string;
   }): Promise<CalComBookingResult> {
-    const response = await this.request<{ status: string; data: any }>('/v2/bookings', {
-      method: 'POST',
-      body: JSON.stringify({
-        eventTypeId: params.eventTypeId,
-        start: params.start,
-        attendee: {
-          name: params.attendeeName,
-          email: params.attendeeEmail,
-          timeZone: params.attendeeTimezone,
-        },
-        metadata: {
-          source: 'reply-agent',
-        },
-        ...(params.notes ? { notes: params.notes } : {}),
-      }),
-    });
+    // Ensure start time is in proper UTC ISO 8601 format
+    let startUtc = params.start;
+    if (!startUtc.endsWith('Z') && !startUtc.includes('+')) {
+      startUtc = `${startUtc}Z`;
+    }
+
+    const response = await this.request<{ status: string; data: any }>(
+      '/v2/bookings',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          eventTypeId: params.eventTypeId,
+          start: startUtc,
+          attendee: {
+            name: params.attendeeName,
+            email: params.attendeeEmail,
+            timeZone: params.attendeeTimezone,
+            language: 'en',
+          },
+          metadata: {
+            source: 'reply-agent',
+          },
+          ...(params.notes ? { notes: params.notes } : {}),
+        }),
+      },
+      API_VERSIONS.bookings
+    );
 
     const booking = response.data;
     return {
@@ -153,14 +182,18 @@ export class CalComClient {
    * Cal.com fires `BOOKING_CREATED` when someone books a meeting.
    */
   async createWebhook(subscriberUrl: string): Promise<{ webhookId: string }> {
-    const response = await this.request<{ status: string; data: any }>('/v2/webhooks', {
-      method: 'POST',
-      body: JSON.stringify({
-        subscriberUrl,
-        triggers: ['BOOKING_CREATED'],
-        active: true,
-      }),
-    });
+    const response = await this.request<{ status: string; data: any }>(
+      '/v2/webhooks',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          subscriberUrl,
+          triggers: ['BOOKING_CREATED'],
+          active: true,
+        }),
+      },
+      API_VERSIONS.webhooks
+    );
 
     return { webhookId: String(response.data.id) };
   }
@@ -169,6 +202,10 @@ export class CalComClient {
    * Delete a webhook subscription.
    */
   async deleteWebhook(webhookId: string): Promise<void> {
-    await this.request(`/v2/webhooks/${webhookId}`, { method: 'DELETE' });
+    await this.request(
+      `/v2/webhooks/${webhookId}`,
+      { method: 'DELETE' },
+      API_VERSIONS.webhooks
+    );
   }
 }
