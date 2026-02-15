@@ -159,8 +159,8 @@ export class CalComClient {
           },
           metadata: {
             source: 'reply-agent',
+            ...(params.notes ? { notes: params.notes } : {}),
           },
-          ...(params.notes ? { notes: params.notes } : {}),
         }),
       },
       API_VERSIONS.bookings
