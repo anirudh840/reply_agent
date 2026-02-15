@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
       last_response_sent_at: now,
       needs_approval: false,
       approved_at: now,
+      followup_sent: true,
     });
 
     return NextResponse.json({

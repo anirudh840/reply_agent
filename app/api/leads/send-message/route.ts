@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       last_response_sent: message,
       last_response_sent_at: now,
       needs_approval: false,
+      followup_sent: true,
     });
 
     return NextResponse.json({

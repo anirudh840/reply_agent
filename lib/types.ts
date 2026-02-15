@@ -143,6 +143,7 @@ export interface InterestedLead {
   approval_reason?: string;
   approved_at?: string;
   followup_stage: number;
+  followup_sent?: boolean;
   next_followup_due_at?: string;
   last_lead_reply_at?: string;
   conversation_status: ConversationStatus;
@@ -259,6 +260,8 @@ export interface DashboardMetrics {
   automated_replies: number;
   needs_approval: number;
   auto_responded: number;
+  followup_sent: number;
+  ooo_replies: number;
   errors: number;
   false_positives: number;
 }
@@ -266,14 +269,14 @@ export interface DashboardMetrics {
 export interface ChartDataPoint {
   date: string;
   positive_responses: number;
-  automated_responses: number;
+  ooo_responses: number;
   total_responses: number;
 }
 
 // Filter Types
 export interface InboxFilters {
   lead_status?: ReplyStatus[];
-  agent_status?: ('needs_approval' | 'ai_responded' | 'error')[];
+  agent_status?: ('needs_approval' | 'ai_responded' | 'followup_sent' | 'error')[];
   agent_ids?: string[];
   date_from?: string;
   date_to?: string;

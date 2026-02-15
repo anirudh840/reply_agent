@@ -9,11 +9,12 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const agentId = searchParams.get('agent_id') || undefined;
-    const days = parseInt(searchParams.get('days') || '30');
+    const dateFrom = searchParams.get('date_from') || undefined;
+    const dateTo = searchParams.get('date_to') || undefined;
 
     const [metrics, chartData] = await Promise.all([
       getDashboardMetrics(agentId),
-      getChartData(agentId, days),
+      getChartData(agentId, dateFrom, dateTo),
     ]);
 
     return NextResponse.json({

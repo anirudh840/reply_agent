@@ -31,13 +31,14 @@ import {
   Paperclip,
   Upload,
   Loader2,
+  Reply,
 } from 'lucide-react';
 import { formatRelativeTime, safeFormatDate } from '@/lib/utils';
 import type { InterestedLead, Agent } from '@/lib/types';
 import { RichTextEditor } from '@/components/inbox/RichTextEditor';
 import { toast, Toaster } from 'react-hot-toast';
 
-type Category = 'all' | 'interested' | 'not_interested' | 'automated' | 'not_automated' | 'tracked' | 'untracked';
+type Category = 'all' | 'interested' | 'not_interested' | 'followup' | 'automated' | 'not_automated' | 'tracked' | 'untracked';
 
 export default function InboxPage() {
   const [leads, setLeads] = useState<InterestedLead[]>([]);
@@ -142,6 +143,13 @@ export default function InboxPage() {
           );
         }
 
+        // Filter by followup_sent status
+        if (agentStatusFilter.includes('followup_sent')) {
+          filteredLeads = filteredLeads.filter(
+            (lead: InterestedLead) => lead.followup_sent === true
+          );
+        }
+
         // Filter by error status (if we add error tracking later)
         if (agentStatusFilter.includes('error')) {
           filteredLeads = filteredLeads.filter(
@@ -162,6 +170,12 @@ export default function InboxPage() {
               // Filter for not interested leads
               filteredLeads = filteredLeads.filter(
                 (lead: InterestedLead) => lead.is_truly_interested === false
+              );
+              break;
+            case 'followup':
+              // Filter for leads that received a followup from the agent
+              filteredLeads = filteredLeads.filter(
+                (lead: InterestedLead) => lead.followup_sent === true
               );
               break;
             case 'automated':
@@ -315,6 +329,15 @@ export default function InboxPage() {
       );
     }
 
+    if (lead.followup_sent && lead.last_response_sent) {
+      return (
+        <Badge variant="default" className="text-xs bg-orange-600">
+          <Reply className="mr-1 h-3 w-3" />
+          Followup Sent
+        </Badge>
+      );
+    }
+
     if (lead.last_response_sent) {
       return (
         <Badge variant="default" className="text-xs bg-green-600">
@@ -408,6 +431,8 @@ export default function InboxPage() {
         return leads.filter((lead) => lead.is_truly_interested === true).length;
       case 'not_interested':
         return leads.filter((lead) => lead.is_truly_interested === false).length;
+      case 'followup':
+        return leads.filter((lead) => lead.followup_sent === true).length;
       case 'automated':
         return leads.filter((lead) => lead.is_automated_original === true).length;
       case 'not_automated':
@@ -426,6 +451,7 @@ export default function InboxPage() {
     { id: 'all' as Category, label: 'All Inbox', icon: Inbox, color: 'text-gray-700' },
     { id: 'interested' as Category, label: 'Interested', icon: ThumbsUp, color: 'text-green-600' },
     { id: 'not_interested' as Category, label: 'Not Interested', icon: ThumbsDown, color: 'text-red-600' },
+    { id: 'followup' as Category, label: 'Followup Sent', icon: Reply, color: 'text-orange-600' },
     { id: 'automated' as Category, label: 'Automated Reply', icon: Bot, color: 'text-purple-600' },
     { id: 'not_automated' as Category, label: 'Not Automated Reply', icon: UserCircle, color: 'text-blue-600' },
     { id: 'tracked' as Category, label: 'Tracked Reply', icon: Eye, color: 'text-indigo-600' },
@@ -503,7 +529,7 @@ export default function InboxPage() {
               Agent Status
             </label>
             <div className="flex flex-wrap gap-1">
-              {['needs_approval', 'ai_responded'].map((status) => (
+              {['needs_approval', 'ai_responded', 'followup_sent'].map((status) => (
                 <button
                   key={status}
                   onClick={() => toggleFilter(agentStatusFilter, setAgentStatusFilter, status)}

@@ -414,6 +414,10 @@ export async function getDashboardMetrics(agentId?: string) {
     .from('replies')
     .select('*', { count: 'exact', head: true })
     .eq('is_automated_original', true);
+  let oooQuery = supabaseAdmin
+    .from('replies')
+    .select('*', { count: 'exact', head: true })
+    .eq('corrected_status', 'out_of_office');
   let leadsQuery = supabaseAdmin
     .from('interested_leads')
     .select('*', { count: 'exact', head: true });
@@ -421,6 +425,10 @@ export async function getDashboardMetrics(agentId?: string) {
     .from('interested_leads')
     .select('*', { count: 'exact', head: true })
     .eq('needs_approval', true);
+  let followupSentQuery = supabaseAdmin
+    .from('interested_leads')
+    .select('*', { count: 'exact', head: true })
+    .eq('followup_sent', true);
   let errorsQuery = supabaseAdmin
     .from('replies')
     .select('*', { count: 'exact', head: true })
@@ -430,18 +438,22 @@ export async function getDashboardMetrics(agentId?: string) {
     repliesQuery = repliesQuery.eq('agent_id', agentId);
     interestedQuery = interestedQuery.eq('agent_id', agentId);
     automatedQuery = automatedQuery.eq('agent_id', agentId);
+    oooQuery = oooQuery.eq('agent_id', agentId);
     leadsQuery = leadsQuery.eq('agent_id', agentId);
     needsApprovalQuery = needsApprovalQuery.eq('agent_id', agentId);
+    followupSentQuery = followupSentQuery.eq('agent_id', agentId);
     errorsQuery = errorsQuery.eq('agent_id', agentId);
   }
 
-  const [totalReplies, interestedReplies, automatedReplies, totalLeads, needsApproval, errors] =
+  const [totalReplies, interestedReplies, automatedReplies, oooReplies, totalLeads, needsApproval, followupSent, errors] =
     await Promise.all([
       repliesQuery,
       interestedQuery,
       automatedQuery,
+      oooQuery,
       leadsQuery,
       needsApprovalQuery,
+      followupSentQuery,
       errorsQuery,
     ]);
 
@@ -451,44 +463,55 @@ export async function getDashboardMetrics(agentId?: string) {
     automated_replies: automatedReplies.count || 0,
     needs_approval: needsApproval.count || 0,
     auto_responded: (totalLeads.count || 0) - (needsApproval.count || 0),
+    followup_sent: followupSent.count || 0,
+    ooo_replies: oooReplies.count || 0,
     errors: errors.count || 0,
     false_positives: 0, // TODO: Calculate based on feedback logs
   };
 }
 
-export async function getChartData(agentId?: string, days: number = 30) {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
+export async function getChartData(agentId?: string, dateFrom?: string, dateTo?: string) {
   let query = supabaseAdmin
     .from('replies')
-    .select('received_at, is_truly_interested, is_automated_original')
-    .gte('received_at', startDate.toISOString())
+    .select('received_at, is_truly_interested, corrected_status')
     .order('received_at', { ascending: true });
 
   if (agentId) query = query.eq('agent_id', agentId);
+
+  if (dateFrom) {
+    query = query.gte('received_at', dateFrom);
+  } else {
+    // Default to last 30 days
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    query = query.gte('received_at', startDate.toISOString());
+  }
+
+  if (dateTo) {
+    query = query.lte('received_at', dateTo);
+  }
 
   const { data, error } = await query;
 
   if (error) throw new DatabaseError('Failed to get chart data', error);
 
   // Group by date
-  const groupedData: Record<string, { positive: number; automated: number; total: number }> = {};
+  const groupedData: Record<string, { positive: number; ooo: number; total: number }> = {};
 
   data?.forEach((reply: any) => {
     const date = reply.received_at.split('T')[0];
     if (!groupedData[date]) {
-      groupedData[date] = { positive: 0, automated: 0, total: 0 };
+      groupedData[date] = { positive: 0, ooo: 0, total: 0 };
     }
     groupedData[date].total++;
     if (reply.is_truly_interested) groupedData[date].positive++;
-    if (reply.is_automated_original) groupedData[date].automated++;
+    if (reply.corrected_status === 'out_of_office') groupedData[date].ooo++;
   });
 
   return Object.entries(groupedData).map(([date, counts]) => ({
     date,
     positive_responses: counts.positive,
-    automated_responses: counts.automated,
+    ooo_responses: counts.ooo,
     total_responses: counts.total,
   }));
 }

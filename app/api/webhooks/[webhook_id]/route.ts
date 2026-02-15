@@ -605,6 +605,7 @@ export async function POST(
             last_response_sent: generatedResponse.content,
             last_response_sent_at: now,
             needs_approval: false,
+            followup_sent: true,
           });
 
           console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}`);
