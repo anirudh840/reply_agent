@@ -495,88 +495,97 @@ export async function POST(
         conversationHistory: historyForAI,
       });
 
-      // Execute booking action if AI requested one
-      if (generatedResponse.booking_action) {
-        try {
-          const bookingAction = {
-            ...generatedResponse.booking_action,
-            attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
-            attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
-          };
-          const bookingResult = await executeBookingAction(agent, bookingAction);
+      // Handle booking action if AI requested one
+      let forceManualApprovalForBooking = false;
+      let bookingApprovalReason = '';
 
-          if (bookingResult.success && (bookingResult.meetingUrl || bookingResult.bookingLink)) {
-            const bookingUrl = bookingResult.meetingUrl || bookingResult.bookingLink!;
-            console.log(`[Webhook] Booking action executed, URL: ${bookingUrl}`);
+      if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'book') {
+        const canBookDirectly = agent.booking_platform === 'cal_com';
 
-            // Append booking link to the AI response so the lead can book
-            if (!generatedResponse.content.includes(bookingUrl)) {
-              generatedResponse.content += `\n\nHere's the link to book the meeting: ${bookingUrl}`;
-            }
+        if (canBookDirectly) {
+          // Cal.com supports direct booking — execute it
+          try {
+            const bookingAction = {
+              ...generatedResponse.booking_action,
+              attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
+              attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
+            };
+            const bookingResult = await executeBookingAction(agent, bookingAction);
 
-            // Record the meeting in the database
-            const leadRecord_existing = existingLead || null;
-            try {
-              await createMeetingBooked({
-                agent_id: agent.id,
-                lead_id: leadRecord_existing?.id,
-                lead_email: reply.from_email_address,
-                lead_name: reply.from_name,
-                meeting_url: bookingUrl,
-                booking_platform: agent.booking_platform,
-                booked_at: new Date().toISOString(),
-              });
-              console.log(`[Webhook] Meeting recorded for ${reply.from_email_address}`);
-            } catch (meetingError) {
-              console.warn('[Webhook] Failed to record meeting:', meetingError);
-            }
+            if (bookingResult.success && bookingResult.meetingUrl) {
+              console.log(`[Webhook] Booking created directly via Cal.com: ${bookingResult.meetingUrl}`);
 
-            // Send Slack notification for meeting booked
-            if (agent.slack_webhook_url) {
+              const leadRecord_existing = existingLead || null;
               try {
-                const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-                  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-                  : process.env.VERCEL_URL
-                    ? `https://${process.env.VERCEL_URL}`
-                    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
-                await sendMeetingBookedNotification(agent.slack_webhook_url, {
-                  leadName: reply.from_name,
-                  leadEmail: reply.from_email_address,
-                  agentName: agent.name,
-                  meetingUrl: bookingUrl,
-                  inboxUrl: `${appUrl}/inbox`,
+                await createMeetingBooked({
+                  agent_id: agent.id,
+                  lead_id: leadRecord_existing?.id,
+                  lead_email: reply.from_email_address,
+                  lead_name: reply.from_name,
+                  meeting_url: bookingResult.meetingUrl,
+                  booking_platform: agent.booking_platform,
+                  booked_at: new Date().toISOString(),
                 });
-                console.log(`[Webhook] Slack meeting notification sent for ${reply.from_email_address}`);
-              } catch (slackError) {
-                console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
+              } catch (meetingError) {
+                console.warn('[Webhook] Failed to record meeting:', meetingError);
               }
+
+              if (agent.slack_webhook_url) {
+                try {
+                  const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+                    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+                    : process.env.VERCEL_URL
+                      ? `https://${process.env.VERCEL_URL}`
+                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                  await sendMeetingBookedNotification(agent.slack_webhook_url, {
+                    leadName: reply.from_name,
+                    leadEmail: reply.from_email_address,
+                    agentName: agent.name,
+                    meetingUrl: bookingResult.meetingUrl,
+                    inboxUrl: `${appUrl}/inbox`,
+                  });
+                } catch (slackError) {
+                  console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
+                }
+              }
+            } else {
+              console.warn(`[Webhook] Cal.com booking failed:`, bookingResult.error);
+              forceManualApprovalForBooking = true;
+              bookingApprovalReason = `Calendar booking failed (${bookingResult.error}). Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
             }
-          } else if (!bookingResult.success) {
-            console.warn(`[Webhook] Booking action failed:`, bookingResult.error);
-            // Fallback: append static booking link to response if available
-            if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
-              generatedResponse.content += `\n\nYou can book a time here: ${agent.booking_link}`;
-              console.log(`[Webhook] Appended fallback booking link to response`);
-            }
+          } catch (bookingError: any) {
+            console.warn('[Webhook] Booking error:', bookingError);
+            forceManualApprovalForBooking = true;
+            bookingApprovalReason = `Calendar booking error. Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
           }
-        } catch (bookingError) {
-          console.warn('[Webhook] Booking action error:', bookingError);
-          // Fallback: append static booking link to response if available
-          if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
-            generatedResponse.content += `\n\nYou can book a time here: ${agent.booking_link}`;
-          }
+        } else {
+          // Calendly (or other platforms) can't book directly via API.
+          // Force manual approval so the user can send the invite themselves.
+          forceManualApprovalForBooking = true;
+          const requestedDate = generatedResponse.booking_action.date || 'requested date';
+          const requestedTime = generatedResponse.booking_action.start_time || 'requested time';
+          const requestedTz = generatedResponse.booking_action.timezone || 'their timezone';
+          bookingApprovalReason = `Lead requested a direct calendar invite. Calendly does not support programmatic booking — you need to manually send a calendar invite to ${reply.from_email_address} for ${requestedDate} at ${requestedTime} (${requestedTz}).`;
+          console.log(`[Webhook] Calendly can't book directly, forcing manual approval for ${reply.from_email_address}`);
+        }
+      } else if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'suggest_link') {
+        // AI wants to suggest a booking link — append it to the response
+        if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+          generatedResponse.content += `\n\nHere's the link to book a time: ${agent.booking_link}`;
         }
       }
 
       // Determine if approval is needed and why
       const isLowConfidence = generatedResponse.confidence_score <= agent.confidence_threshold;
       const isHumanInLoop = agent.mode === 'human_in_loop';
-      const needsApproval = isHumanInLoop || isLowConfidence;
+      const needsApproval = isHumanInLoop || isLowConfidence || forceManualApprovalForBooking;
 
       let approvalReason: string | undefined;
       if (needsApproval) {
         const reasons: string[] = [];
+        if (forceManualApprovalForBooking) {
+          reasons.push(bookingApprovalReason);
+        }
         if (isHumanInLoop) {
           reasons.push('Agent is in Human-in-Loop mode — all responses require manual approval');
         }
