@@ -53,11 +53,12 @@ export class CalendlyClient {
     }
   }
 
-  async getCurrentUser(): Promise<{ uri: string; name: string }> {
+  async getCurrentUser(): Promise<{ uri: string; name: string; organizationUri: string }> {
     const response = await this.request<{ resource: any }>('/users/me');
     return {
       uri: response.resource.uri,
       name: response.resource.name,
+      organizationUri: response.resource.current_organization,
     };
   }
 
@@ -132,15 +133,13 @@ export class CalendlyClient {
    */
   async createWebhookSubscription(callbackUrl: string): Promise<{ webhookId: string }> {
     const user = await this.getCurrentUser();
-    // Extract organization URI from user URI: /users/XXX -> /organizations/XXX
-    const orgUri = user.uri.replace('/users/', '/organizations/');
 
     const response = await this.request<{ resource: any }>('/webhook_subscriptions', {
       method: 'POST',
       body: JSON.stringify({
         url: callbackUrl,
         events: ['invitee.created'],
-        organization: orgUri,
+        organization: user.organizationUri,
         scope: 'organization',
       }),
     });
