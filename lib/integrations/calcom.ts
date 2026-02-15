@@ -147,4 +147,28 @@ export class CalComClient {
       meetingUrl: booking.meetingUrl || booking.metadata?.videoCallUrl,
     };
   }
+
+  /**
+   * Create a webhook for booking events.
+   * Cal.com fires `BOOKING_CREATED` when someone books a meeting.
+   */
+  async createWebhook(subscriberUrl: string): Promise<{ webhookId: string }> {
+    const response = await this.request<{ status: string; data: any }>('/v2/webhooks', {
+      method: 'POST',
+      body: JSON.stringify({
+        subscriberUrl,
+        eventTriggers: ['BOOKING_CREATED'],
+        active: true,
+      }),
+    });
+
+    return { webhookId: String(response.data.id) };
+  }
+
+  /**
+   * Delete a webhook subscription.
+   */
+  async deleteWebhook(webhookId: string): Promise<void> {
+    await this.request(`/v2/webhooks/${webhookId}`, { method: 'DELETE' });
+  }
 }

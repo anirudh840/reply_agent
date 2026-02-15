@@ -216,6 +216,100 @@ export async function sendMeetingBookedNotification(
   }
 }
 
+export async function sendMeetingAutoDetectedNotification(
+  webhookUrl: string,
+  payload: {
+    attendeeName?: string;
+    attendeeEmail: string;
+    eventName?: string;
+    meetingTime?: string;
+    platform: string;
+    agentName: string;
+    matchedLead?: { name?: string; email: string };
+    inboxUrl: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const matchText = payload.matchedLead
+      ? `:white_check_mark: *Matched lead:* ${payload.matchedLead.name || payload.matchedLead.email}`
+      : ':grey_question: No matching lead found in inbox';
+
+    const blocks = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: ':calendar: Meeting Auto-Detected!',
+          emoji: true,
+        },
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*Attendee:*\n${payload.attendeeName || 'Unknown'} (${payload.attendeeEmail})`,
+          },
+          {
+            type: 'mrkdwn',
+            text: `*Agent:*\n${payload.agentName}`,
+          },
+          {
+            type: 'mrkdwn',
+            text: `*Platform:*\n${payload.platform === 'cal_com' ? 'Cal.com' : 'Calendly'}`,
+          },
+          ...(payload.meetingTime
+            ? [{ type: 'mrkdwn' as const, text: `*Time:*\n${payload.meetingTime}` }]
+            : []),
+        ],
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: matchText,
+          },
+        ],
+      },
+      { type: 'divider' },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: 'View in Inbox',
+              emoji: true,
+            },
+            url: payload.inboxUrl,
+            style: 'primary',
+          },
+        ],
+      },
+    ];
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `:calendar: Meeting auto-detected: ${payload.attendeeName || payload.attendeeEmail} via ${payload.platform} (${payload.agentName})`,
+        blocks,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return { success: false, error: `Slack API error: ${response.status} ${text}` };
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to send Slack notification' };
+  }
+}
+
 export async function testSlackWebhook(
   webhookUrl: string
 ): Promise<{ success: boolean; error?: string }> {

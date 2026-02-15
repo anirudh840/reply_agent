@@ -125,4 +125,33 @@ export class CalendlyClient {
       owner_type: response.resource.owner_type,
     };
   }
+
+  /**
+   * Create a webhook subscription for booking events.
+   * Calendly fires `invitee.created` when someone books a meeting.
+   */
+  async createWebhookSubscription(callbackUrl: string): Promise<{ webhookId: string }> {
+    const user = await this.getCurrentUser();
+    // Extract organization URI from user URI: /users/XXX -> /organizations/XXX
+    const orgUri = user.uri.replace('/users/', '/organizations/');
+
+    const response = await this.request<{ resource: any }>('/webhook_subscriptions', {
+      method: 'POST',
+      body: JSON.stringify({
+        url: callbackUrl,
+        events: ['invitee.created'],
+        organization: orgUri,
+        scope: 'organization',
+      }),
+    });
+
+    return { webhookId: response.resource.uri };
+  }
+
+  /**
+   * Delete a webhook subscription.
+   */
+  async deleteWebhookSubscription(webhookUri: string): Promise<void> {
+    await this.request(webhookUri, { method: 'DELETE' });
+  }
 }

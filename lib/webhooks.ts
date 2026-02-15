@@ -41,6 +41,26 @@ export function getWebhookUrl(webhookId: string): string {
 }
 
 /**
+ * Get the booking webhook URL for an agent (receives Calendly/Cal.com events)
+ */
+export function getBookingWebhookUrl(webhookId: string): string {
+  let baseUrl: string;
+
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    baseUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  } else if (process.env.VERCEL_URL) {
+    baseUrl = `https://${process.env.VERCEL_URL}`;
+  } else if (process.env.NEXT_PUBLIC_APP_URL) {
+    baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  } else {
+    baseUrl = 'http://localhost:3000';
+  }
+
+  baseUrl = baseUrl.replace(/\/$/, '');
+  return `${baseUrl}/api/webhooks/booking/${webhookId}`;
+}
+
+/**
  * Verify webhook signature (if webhook_secret is used)
  * This can be expanded based on EmailBison's webhook signing mechanism
  */

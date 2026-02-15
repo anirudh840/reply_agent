@@ -76,6 +76,11 @@ export default function ConfigureAgentPage() {
   const [eventTypes, setEventTypes] = useState<Array<{ id: string; name: string; duration: number; booking_url?: string }>>([]);
   const [loadingEventTypes, setLoadingEventTypes] = useState(false);
 
+  // Booking Webhook
+  const [bookingWebhookUrl, setBookingWebhookUrl] = useState('');
+  const [registeringWebhook, setRegisteringWebhook] = useState(false);
+  const [bookingWebhookCopied, setBookingWebhookCopied] = useState(false);
+
   useEffect(() => {
     if (agentId) {
       fetchAgent();
@@ -134,6 +139,7 @@ export default function ConfigureAgentPage() {
         if (agentData.webhook_id) {
           const baseUrl = window.location.origin;
           setWebhookUrl(`${baseUrl}/api/webhooks/${agentData.webhook_id}`);
+          setBookingWebhookUrl(`${baseUrl}/api/webhooks/booking/${agentData.webhook_id}`);
         }
 
         // Slack Integration
@@ -735,6 +741,98 @@ export default function ConfigureAgentPage() {
                 )}
               </div>
             </details>
+            {/* Booking Webhook (Auto-Detect Meetings) */}
+            {bookingPlatform && (
+              <details className="rounded-md border">
+                <summary className="cursor-pointer p-4 font-medium">
+                  Booking Webhook (Auto-Detect Meetings)
+                </summary>
+                <div className="border-t p-4 space-y-4">
+                  <p className="text-sm text-gray-600">
+                    When someone books a meeting through your {bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} link,
+                    this webhook automatically detects it and marks matching leads as &quot;meeting booked&quot; in the dashboard.
+                  </p>
+
+                  {bookingWebhookUrl && (
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">Booking Webhook URL</label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={bookingWebhookUrl}
+                          readOnly
+                          className="bg-gray-50 font-mono text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(bookingWebhookUrl);
+                            setBookingWebhookCopied(true);
+                            setTimeout(() => setBookingWebhookCopied(false), 2000);
+                          }}
+                        >
+                          {bookingWebhookCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Paste this URL in your {bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} webhook settings,
+                        or use the button below to auto-register.
+                      </p>
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      if (!bookingApiKey) {
+                        alert('Please enter your booking API key first');
+                        return;
+                      }
+                      setRegisteringWebhook(true);
+                      try {
+                        const response = await fetch('/api/integrations/booking/register-webhook', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            agent_id: agentId,
+                            booking_platform: bookingPlatform,
+                            booking_api_key: bookingApiKey,
+                          }),
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                          alert(`Booking webhook registered successfully!\nURL: ${data.webhook_url}`);
+                        } else {
+                          alert(`Failed to register: ${data.error}`);
+                        }
+                      } catch (error: any) {
+                        alert(`Error: ${error.message}`);
+                      } finally {
+                        setRegisteringWebhook(false);
+                      }
+                    }}
+                    disabled={registeringWebhook || !bookingApiKey}
+                    className="w-full"
+                  >
+                    {registeringWebhook ? (
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Registering...</>
+                    ) : (
+                      <><Link className="h-4 w-4 mr-2" /> Auto-Register Webhook with {bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'}</>
+                    )}
+                  </Button>
+
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                    <p className="text-xs text-amber-800">
+                      <strong>How it works:</strong> When a meeting is booked, the webhook fires and we cross-reference
+                      the attendee&apos;s email with your leads. If a match is found (exact email or same domain),
+                      the lead is auto-marked as &quot;meeting booked&quot;. All meetings are tracked regardless of match.
+                    </p>
+                  </div>
+                </div>
+              </details>
+            )}
           </CardContent>
         </Card>
 

@@ -189,6 +189,22 @@ export async function getInterestedLeadByEmail(agentId: string, email: string) {
   return data as InterestedLead | null;
 }
 
+/**
+ * Find leads by email domain across ALL agents.
+ * Used for cross-referencing booking webhook attendees.
+ */
+export async function findLeadsByEmailDomain(domain: string): Promise<InterestedLead[]> {
+  const { data, error } = await supabaseAdmin
+    .from('interested_leads')
+    .select('*')
+    .ilike('lead_email', `%@${domain}`)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+
+  if (error) throw new DatabaseError('Failed to find leads by email domain', error);
+  return (data || []) as InterestedLead[];
+}
+
 export async function getInterestedLeads(filters?: {
   agent_id?: string;
   agent_ids?: string[];
