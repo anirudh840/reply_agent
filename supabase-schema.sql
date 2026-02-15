@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS replies (
   agent_id UUID REFERENCES agents(id) ON DELETE CASCADE,
 
   -- EmailBison Data
-  emailbison_reply_id TEXT UNIQUE NOT NULL,
+  emailbison_reply_id TEXT NOT NULL,
   emailbison_campaign_id TEXT,
 
   -- Lead Information
@@ -110,6 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_replies_status ON replies(corrected_status);
 CREATE INDEX IF NOT EXISTS idx_replies_processing ON replies(processing_status);
 CREATE INDEX IF NOT EXISTS idx_replies_received ON replies(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_replies_emailbison_id ON replies(emailbison_reply_id);
+ALTER TABLE replies ADD CONSTRAINT replies_agent_emailbison_reply_unique UNIQUE (agent_id, emailbison_reply_id);
 CREATE INDEX IF NOT EXISTS idx_replies_lead_email ON replies(lead_email);
 CREATE INDEX IF NOT EXISTS idx_replies_interested ON replies(is_truly_interested) WHERE is_truly_interested = true;
 
