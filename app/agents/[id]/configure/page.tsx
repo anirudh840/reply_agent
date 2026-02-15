@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Save, Loader2, Plus, Trash2, Globe, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Plus, Trash2, Globe, AlertCircle, Check, X, Eye, EyeOff, Copy, Link } from 'lucide-react';
 import { TIMEZONES, PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
-import type { Agent } from '@/lib/types';
+import type { Agent, BookingPlatform } from '@/lib/types';
 
 export default function ConfigureAgentPage() {
   const router = useRouter();
@@ -50,6 +50,31 @@ export default function ConfigureAgentPage() {
     { delay_days: 3, type: 'value_driven', instructions: '' },
     { delay_days: 10, type: 'close_up', instructions: '' },
   ]);
+
+  // API Keys (empty by default — only saved if user enters a new value)
+  const [platformApiKey, setPlatformApiKey] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [showPlatformKey, setShowPlatformKey] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [hasPlatformKey, setHasPlatformKey] = useState(false);
+  const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
+
+  // Webhook URL
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  // Slack Integration
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+  const [testingSlack, setTestingSlack] = useState(false);
+  const [slackTestResult, setSlackTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  // Booking Integration
+  const [bookingPlatform, setBookingPlatform] = useState<'' | 'cal_com' | 'calendly'>('');
+  const [bookingApiKey, setBookingApiKey] = useState('');
+  const [bookingEventId, setBookingEventId] = useState('');
+  const [bookingLink, setBookingLink] = useState('');
+  const [eventTypes, setEventTypes] = useState<Array<{ id: string; name: string; duration: number; booking_url?: string }>>([]);
+  const [loadingEventTypes, setLoadingEventTypes] = useState(false);
 
   useEffect(() => {
     if (agentId) {
@@ -98,6 +123,27 @@ export default function ConfigureAgentPage() {
           setUseDefaultSequence(false);
           setCustomSequence(followup.steps);
         }
+
+        // API Keys — DON'T show actual keys; just track whether they exist
+        setHasPlatformKey(!!agentData.emailbison_api_key);
+        setHasOpenaiKey(!!agentData.openai_api_key);
+        setPlatformApiKey(''); // Keep empty for security
+        setOpenaiApiKey('');   // Keep empty for security
+
+        // Webhook URL
+        if (agentData.webhook_id) {
+          const baseUrl = window.location.origin;
+          setWebhookUrl(`${baseUrl}/api/webhooks/${agentData.webhook_id}`);
+        }
+
+        // Slack Integration
+        setSlackWebhookUrl(agentData.slack_webhook_url || '');
+
+        // Booking Integration
+        setBookingPlatform((agentData.booking_platform as '' | 'cal_com' | 'calendly') || '');
+        setBookingApiKey(agentData.booking_api_key || '');
+        setBookingEventId(agentData.booking_event_id || '');
+        setBookingLink(agentData.booking_link || '');
       } else {
         alert('Failed to load agent');
         router.push('/agents');
@@ -153,6 +199,53 @@ export default function ConfigureAgentPage() {
     }
   };
 
+  const handleTestSlack = async () => {
+    if (!slackWebhookUrl) return;
+    setTestingSlack(true);
+    setSlackTestResult(null);
+    try {
+      const response = await fetch('/api/integrations/slack/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slack_webhook_url: slackWebhookUrl }),
+      });
+      const data = await response.json();
+      setSlackTestResult(data);
+    } catch {
+      setSlackTestResult({ success: false, error: 'Network error' });
+    } finally {
+      setTestingSlack(false);
+    }
+  };
+
+  const handleFetchEventTypes = async () => {
+    if (!bookingPlatform || !bookingApiKey) return;
+    setLoadingEventTypes(true);
+    setEventTypes([]);
+    setBookingEventId('');
+    setBookingLink('');
+    try {
+      const response = await fetch('/api/integrations/booking/event-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_platform: bookingPlatform, booking_api_key: bookingApiKey }),
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        setEventTypes(data.data);
+        if (data.data.length === 0) {
+          alert('No event types found in your account. Please create one first.');
+        }
+      } else {
+        alert(`Failed to fetch event types: ${data.error || 'Unknown error'}`);
+      }
+    } catch {
+      alert('Failed to connect to booking platform. Check your API key.');
+    } finally {
+      setLoadingEventTypes(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!name.trim()) {
       alert('Please enter an agent name');
@@ -161,7 +254,7 @@ export default function ConfigureAgentPage() {
 
     setSaving(true);
     try {
-      const updates = {
+      const updates: Record<string, any> = {
         name,
         mode,
         timezone,
@@ -189,7 +282,21 @@ export default function ConfigureAgentPage() {
               type: 'custom',
               steps: customSequence,
             },
+        // Integrations
+        slack_webhook_url: slackWebhookUrl || null,
+        booking_platform: bookingPlatform || null,
+        booking_api_key: bookingApiKey || null,
+        booking_event_id: bookingEventId || null,
+        booking_link: bookingLink || null,
       };
+
+      // Only include API keys if user entered new values (non-empty)
+      if (platformApiKey.trim()) {
+        updates.emailbison_api_key = platformApiKey;
+      }
+      if (openaiApiKey.trim()) {
+        updates.openai_api_key = openaiApiKey;
+      }
 
       const response = await fetch(`/api/agents/${agentId}`, {
         method: 'PATCH',
@@ -238,20 +345,46 @@ export default function ConfigureAgentPage() {
           <p className="text-gray-600">Edit {agent.name} settings and knowledge base</p>
         </div>
 
-        {/* Alert about API keys */}
-        <Card className="mb-6 border-blue-200 bg-blue-50">
-          <CardContent className="pt-6">
-            <div className="flex gap-3">
-              <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm text-blue-900">
-                  <strong>Note:</strong> Platform, API keys, and OpenAI key cannot be edited for
-                  security reasons. If you need to change them, please create a new agent.
-                </p>
+        {/* Webhook URL */}
+        {webhookUrl && (
+          <Card className="mb-6 border-green-200 bg-green-50">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <Link className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <label className="block text-sm font-semibold text-green-900 mb-2">Webhook URL</label>
+                  <p className="text-xs text-green-700 mb-2">
+                    Configure this URL in your email platform to receive reply notifications.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={webhookUrl}
+                      readOnly
+                      className="bg-white font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(webhookUrl);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="min-w-[80px]"
+                    >
+                      {copied ? (
+                        <><Check className="h-4 w-4 mr-1" /> Copied</>
+                      ) : (
+                        <><Copy className="h-4 w-4 mr-1" /> Copy</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Basic Settings */}
         <Card className="mb-6">
@@ -332,6 +465,276 @@ export default function ConfigureAgentPage() {
                 Responses below this confidence score will require manual approval
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* API Keys */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>API Keys</CardTitle>
+            <CardDescription>Update your platform and OpenAI API keys. Leave blank to keep existing keys.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="block text-sm font-medium">
+                  {PLATFORM_DISPLAY_NAMES[agent.platform || 'emailbison'] || 'Platform'} API Key
+                </label>
+                {hasPlatformKey && !platformApiKey && (
+                  <Badge variant="secondary" className="text-xs">Key set</Badge>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type={showPlatformKey ? 'text' : 'password'}
+                  value={platformApiKey}
+                  onChange={(e) => setPlatformApiKey(e.target.value)}
+                  placeholder={hasPlatformKey ? 'Enter new key to replace existing' : 'Enter platform API key'}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPlatformKey(!showPlatformKey)}
+                  className="px-3"
+                >
+                  {showPlatformKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              {hasPlatformKey && (
+                <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="block text-sm font-medium">OpenAI API Key</label>
+                {hasOpenaiKey && !openaiApiKey && (
+                  <Badge variant="secondary" className="text-xs">Key set</Badge>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type={showOpenaiKey ? 'text' : 'password'}
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder={hasOpenaiKey ? 'Enter new key to replace existing' : 'Enter OpenAI API key'}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                  className="px-3"
+                >
+                  {showOpenaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              {hasOpenaiKey && (
+                <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Integrations */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Integrations</CardTitle>
+            <CardDescription>Connect Slack notifications and calendar booking</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Slack Integration */}
+            <details className="rounded-md border" open={!!slackWebhookUrl}>
+              <summary className="cursor-pointer p-4 font-medium">
+                Slack Notifications {slackWebhookUrl && <Badge variant="secondary" className="ml-2 text-xs">Configured</Badge>}
+              </summary>
+              <div className="border-t p-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Get notified in Slack when interested leads reply to your campaigns.
+                </p>
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Slack Incoming Webhook URL</label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="https://hooks.slack.com/services/T.../B.../..."
+                      value={slackWebhookUrl}
+                      onChange={(e) => {
+                        setSlackWebhookUrl(e.target.value);
+                        setSlackTestResult(null);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleTestSlack}
+                      disabled={testingSlack || !slackWebhookUrl}
+                      className="min-w-[100px]"
+                    >
+                      {testingSlack ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Test'
+                      )}
+                    </Button>
+                  </div>
+                  {slackTestResult && (
+                    <div className={`mt-2 flex items-center gap-2 text-sm ${slackTestResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                      {slackTestResult.success ? (
+                        <><Check className="h-4 w-4" /> Connected! Check your Slack channel.</>
+                      ) : (
+                        <><X className="h-4 w-4" /> {slackTestResult.error || 'Connection failed'}</>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Create an Incoming Webhook in your Slack workspace settings and paste the URL here.
+                  </p>
+                  {slackWebhookUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSlackWebhookUrl('');
+                        setSlackTestResult(null);
+                      }}
+                      className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Remove Slack
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </details>
+
+            {/* Calendar Booking Integration */}
+            <details className="rounded-md border" open={!!bookingPlatform}>
+              <summary className="cursor-pointer p-4 font-medium">
+                Calendar Booking {bookingPlatform && <Badge variant="secondary" className="ml-2 text-xs">Configured</Badge>}
+              </summary>
+              <div className="border-t p-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Let the AI check your calendar availability and book meetings with interested leads.
+                </p>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Booking Platform</label>
+                  <select
+                    value={bookingPlatform}
+                    onChange={(e) => {
+                      setBookingPlatform(e.target.value as '' | 'cal_com' | 'calendly');
+                      setEventTypes([]);
+                      setBookingEventId('');
+                      setBookingLink('');
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">None</option>
+                    <option value="cal_com">Cal.com</option>
+                    <option value="calendly">Calendly</option>
+                  </select>
+                </div>
+
+                {bookingPlatform && (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">
+                        {bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} API Key
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder={`Enter your ${bookingPlatform === 'cal_com' ? 'Cal.com' : 'Calendly'} API key`}
+                          value={bookingApiKey}
+                          onChange={(e) => setBookingApiKey(e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleFetchEventTypes}
+                          disabled={loadingEventTypes || !bookingApiKey}
+                          className="min-w-[140px]"
+                        >
+                          {loadingEventTypes ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> Loading...</>
+                          ) : (
+                            'Fetch Events'
+                          )}
+                        </Button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {bookingPlatform === 'cal_com'
+                          ? 'Get from: cal.com → Settings → Developer → API Keys'
+                          : 'Get from: calendly.com → Integrations → API & Webhooks → Personal Access Tokens'}
+                      </p>
+                    </div>
+
+                    {eventTypes.length > 0 && (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium">Select Event Type</label>
+                        <select
+                          value={bookingEventId}
+                          onChange={(e) => {
+                            setBookingEventId(e.target.value);
+                            const selected = eventTypes.find((et) => et.id === e.target.value);
+                            if (selected?.booking_url) {
+                              setBookingLink(selected.booking_url);
+                            }
+                          }}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="">Choose an event...</option>
+                          {eventTypes.map((et) => (
+                            <option key={et.id} value={et.id}>
+                              {et.name} ({et.duration} min)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Show currently selected event if no new fetch */}
+                    {eventTypes.length === 0 && bookingEventId && (
+                      <div className="rounded-lg bg-gray-50 border p-3">
+                        <p className="text-xs text-gray-600">
+                          Currently configured event: <span className="font-medium">{bookingEventId}</span>
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Click "Fetch Events" to see available events and change the selection.
+                        </p>
+                      </div>
+                    )}
+
+                    {bookingPlatform === 'calendly' && bookingEventId && (
+                      <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                        <p className="text-xs text-blue-800">
+                          Calendly Scheduling API requires a paid plan. The AI will check availability and book meetings automatically.
+                        </p>
+                      </div>
+                    )}
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setBookingPlatform('');
+                        setBookingApiKey('');
+                        setBookingEventId('');
+                        setBookingLink('');
+                        setEventTypes([]);
+                      }}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Remove Booking
+                    </Button>
+                  </>
+                )}
+              </div>
+            </details>
           </CardContent>
         </Card>
 

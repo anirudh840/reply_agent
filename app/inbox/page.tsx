@@ -209,7 +209,12 @@ export default function InboxPage() {
     setSelectedLead(lead);
     // Only set message if lead needs approval
     if (lead.needs_approval && lead.last_response_generated) {
-      setMessageToSend(lead.last_response_generated);
+      // Convert plain text (with \n) to HTML paragraphs for TipTap editor
+      const htmlContent = lead.last_response_generated
+        .split('\n\n')
+        .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+      setMessageToSend(htmlContent);
     } else {
       setMessageToSend('');
     }
@@ -1058,6 +1063,7 @@ export default function InboxPage() {
                 {/* Rich Text Editor */}
                 <div className="space-y-2">
                   <RichTextEditor
+                    key={selectedLead.id}
                     content={messageToSend}
                     onChange={setMessageToSend}
                     placeholder={

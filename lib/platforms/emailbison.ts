@@ -139,10 +139,14 @@ export class EmailBisonClient implements PlatformClient {
   }
 
   async sendReply(params: PlatformSendRequest): Promise<PlatformSendResult> {
-    // Convert plain text newlines to HTML <br> for proper email formatting
-    const htmlMessage = params.message
-      .replace(/\n\n/g, '<br><br>')
-      .replace(/\n/g, '<br>');
+    // If the message is already HTML (from rich text editor), use as-is.
+    // Otherwise convert plain text newlines to HTML <br> for email formatting.
+    const isHtml = /<[^>]+>/.test(params.message);
+    const htmlMessage = isHtml
+      ? params.message
+      : params.message
+          .replace(/\n\n/g, '<br><br>')
+          .replace(/\n/g, '<br>');
 
     const requestBody: any = {
       message: htmlMessage,
@@ -150,10 +154,22 @@ export class EmailBisonClient implements PlatformClient {
     };
 
     if (params.subject) requestBody.subject = params.subject;
-    if (params.cc && params.cc.length > 0) requestBody.cc = params.cc;
-    if (params.bcc && params.bcc.length > 0) requestBody.bcc = params.bcc;
+
+    // EmailBison expects cc/bcc as comma-separated strings, not arrays
+    if (params.cc && params.cc.length > 0) {
+      requestBody.cc = params.cc.join(', ');
+    }
+    if (params.bcc && params.bcc.length > 0) {
+      requestBody.bcc = params.bcc.join(', ');
+    }
+
+    // Note: EmailBison reply endpoint does not support attachments.
+    // Attachments are silently omitted to avoid 422 errors.
     if (params.attachments && params.attachments.length > 0) {
-      requestBody.attachments = params.attachments;
+      console.warn(
+        '[EmailBison] Attachments are not supported on the reply endpoint and will be omitted.',
+        params.attachments.map((a) => a.filename)
+      );
     }
 
     return retryWithBackoff(

@@ -24,3 +24,4 @@ COMMENT ON COLUMN agents.booking_platform IS 'Calendar booking platform: cal_com
 COMMENT ON COLUMN agents.booking_api_key IS 'API key for the booking platform';
 COMMENT ON COLUMN agents.booking_event_id IS 'Selected event type ID from the booking platform';
 COMMENT ON COLUMN agents.booking_link IS 'Public booking page URL for the selected event type';
+

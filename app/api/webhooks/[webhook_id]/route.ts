@@ -459,39 +459,43 @@ export async function POST(
     // Check if this lead already exists (for follow-up replies)
     const existingLead = await getInterestedLeadByEmail(agent.id, reply.from_email_address);
 
-    // CREATE INTERESTED_LEAD FOR ALL REPLIES (not just interested ones)
-    // This ensures all replies appear in the master inbox
+    // Build the full conversation thread (merge existing + new messages)
+    let fullThread: ConversationMessage[] = [];
     if (existingLead) {
-      // Update existing lead with new message
-      const updatedThread = [
-        ...existingLead.conversation_thread,
-        ...conversationThread,
-      ];
+      fullThread = [...existingLead.conversation_thread, ...conversationThread];
+    } else {
+      fullThread = conversationThread;
+    }
 
+    // Update existing lead's thread immediately
+    if (existingLead) {
       await updateInterestedLead(existingLead.id, {
-        conversation_thread: updatedThread,
+        conversation_thread: fullThread,
         last_lead_reply_at: reply.date_received || new Date().toISOString(),
         conversation_status: 'active',
       });
-
       console.log(`[Webhook] Updated existing lead ${existingLead.id} with new reply`);
     }
 
-    // Only generate AI response if truly interested
-    if (categorization.is_truly_interested && !existingLead) {
-      // Generate response for interested lead
+    // Generate AI response for ALL interested replies (first reply or follow-up)
+    if (categorization.is_truly_interested) {
+      // Get the latest lead message for the AI prompt
+      const latestLeadContent = conversationThread[conversationThread.length - 1]?.content || reply.text_body || '';
+
+      // Use full thread as conversation history for context
+      const historyForAI = fullThread.slice(0, -1); // All messages except the latest one
+
       const generatedResponse = await generateResponse({
         leadEmail: reply.from_email_address,
         leadName: reply.from_name,
-        leadMessage: conversationThread[conversationThread.length - 1]?.content || reply.text_body || '',
+        leadMessage: latestLeadContent,
         agent,
-        conversationHistory: conversationThread.slice(1), // Pass quoted messages as history
+        conversationHistory: historyForAI,
       });
 
       // Execute booking action if AI requested one
       if (generatedResponse.booking_action) {
         try {
-          // Ensure lead details are populated (AI might omit them)
           const bookingAction = {
             ...generatedResponse.booking_action,
             attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
@@ -530,25 +534,40 @@ export async function POST(
         }
       }
 
-      // Create interested lead record with parsed conversation thread
-      const interestedLead = await createInterestedLead({
-        agent_id: agent.id,
-        initial_reply_id: replyRecord.id,
-        lead_email: reply.from_email_address,
-        lead_name: reply.from_name,
-        lead_metadata: reply.lead_data,
-        conversation_thread: conversationThread,
-        last_response_generated: generatedResponse.content,
-        response_confidence_score: generatedResponse.confidence_score,
-        last_lead_reply_at: reply.date_received || new Date().toISOString(),
-        needs_approval: needsApproval,
-        approval_reason: approvalReason,
-        conversation_status: 'active',
-        followup_stage: 0,
-      });
+      // The lead record to operate on (existing or newly created)
+      let leadRecord;
+
+      if (existingLead) {
+        // Update existing lead with new AI response
+        await updateInterestedLead(existingLead.id, {
+          last_response_generated: generatedResponse.content,
+          response_confidence_score: generatedResponse.confidence_score,
+          needs_approval: needsApproval,
+          approval_reason: approvalReason,
+        });
+        leadRecord = { ...existingLead, conversation_thread: fullThread };
+        console.log(`[Webhook] Generated follow-up AI response for existing lead ${existingLead.id}`);
+      } else {
+        // Create new interested lead record
+        leadRecord = await createInterestedLead({
+          agent_id: agent.id,
+          initial_reply_id: replyRecord.id,
+          lead_email: reply.from_email_address,
+          lead_name: reply.from_name,
+          lead_metadata: reply.lead_data,
+          conversation_thread: fullThread,
+          last_response_generated: generatedResponse.content,
+          response_confidence_score: generatedResponse.confidence_score,
+          last_lead_reply_at: reply.date_received || new Date().toISOString(),
+          needs_approval: needsApproval,
+          approval_reason: approvalReason,
+          conversation_status: 'active',
+          followup_stage: 0,
+        });
+      }
 
       if (needsApproval) {
-        console.log(`[Webhook] Lead ${interestedLead.id} marked for approval`);
+        console.log(`[Webhook] Lead ${leadRecord.id} marked for approval`);
       } else {
         // Auto-send response
         try {
@@ -572,7 +591,7 @@ export async function POST(
 
           // Refresh thread from the platform API to get the complete conversation
           const refreshedThread = await refreshConversationThread({
-            lead: interestedLead,
+            lead: leadRecord,
             agent,
             sentMessage: {
               content: generatedResponse.content,
@@ -581,7 +600,7 @@ export async function POST(
             },
           });
 
-          await updateInterestedLead(interestedLead.id, {
+          await updateInterestedLead(leadRecord.id, {
             conversation_thread: refreshedThread,
             last_response_sent: generatedResponse.content,
             last_response_sent_at: now,
@@ -594,7 +613,7 @@ export async function POST(
         }
       }
 
-      // Send Slack notification for interested leads (non-blocking)
+      // Send Slack notification (non-blocking)
       if (agent.slack_webhook_url) {
         try {
           const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
@@ -603,11 +622,17 @@ export async function POST(
               ? `https://${process.env.VERCEL_URL}`
               : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
+          // Parse the email to extract only the latest message (strip quoted thread)
+          const parsedMessages = parseEmailThread(reply.text_body || '');
+          const latestMessage = parsedMessages.length > 0
+            ? parsedMessages[0].content
+            : (reply.text_body || '');
+
           await sendSlackNotification(agent.slack_webhook_url, {
             leadName: reply.from_name,
             leadEmail: reply.from_email_address,
             leadCompany: reply.lead_data?.company_name || reply.lead_data?.company,
-            leadMessage: (reply.text_body || '').slice(0, 500),
+            leadMessage: latestMessage.slice(0, 500),
             categorization: {
               is_interested: categorization.is_truly_interested,
               confidence_score: categorization.confidence_score,
@@ -631,8 +656,9 @@ export async function POST(
           : 'Reply processed and auto-responded',
         data: {
           reply_id: replyRecord.id,
-          lead_id: interestedLead.id,
+          lead_id: leadRecord.id,
           auto_sent: !needsApproval,
+          is_followup: !!existingLead,
         },
       });
     } else {
@@ -645,10 +671,10 @@ export async function POST(
           lead_email: reply.from_email_address,
           lead_name: reply.from_name,
           lead_metadata: reply.lead_data,
-          conversation_thread: conversationThread,
+          conversation_thread: fullThread,
           last_lead_reply_at: reply.date_received || new Date().toISOString(),
           needs_approval: false,
-          conversation_status: 'paused', // Mark as paused since no AI response
+          conversation_status: 'paused',
           followup_stage: 0,
         });
 
