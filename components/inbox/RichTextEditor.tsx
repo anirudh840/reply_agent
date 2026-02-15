@@ -59,7 +59,7 @@ export function RichTextEditor({ content, onChange, placeholder = 'Type your mes
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-none focus:outline-none min-h-[200px] p-3',
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-[100px] max-h-[200px] overflow-y-auto p-2',
       },
     },
   });
@@ -87,7 +87,7 @@ export function RichTextEditor({ content, onChange, placeholder = 'Type your mes
   return (
     <div className="border rounded-lg overflow-hidden bg-white">
       {/* Toolbar */}
-      <div className="flex items-center gap-1 p-2 border-b bg-gray-50">
+      <div className="flex items-center gap-0.5 px-2 py-1 border-b bg-gray-50">
         <Button
           type="button"
           variant="ghost"

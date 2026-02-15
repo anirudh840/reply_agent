@@ -78,7 +78,7 @@ export default function InboxPage() {
   const [leadSidebarCollapsed, setLeadSidebarCollapsed] = useState(false);
 
   // Thread display options
-  const [threadOrder, setThreadOrder] = useState<'newest' | 'oldest'>('oldest');
+  const [threadOrder, setThreadOrder] = useState<'newest' | 'oldest'>('newest');
   const [threadExpanded, setThreadExpanded] = useState(false);
 
   useEffect(() => {
@@ -937,11 +937,11 @@ export default function InboxPage() {
               </div>
 
               {/* Message Composer */}
-              <div className="p-4 border-t border-gray-200 bg-white">
+              <div className="px-3 py-2 border-t border-gray-200 bg-white">
                 {/* AI Generated Response Notice */}
                 {selectedLead.needs_approval && selectedLead.last_response_generated && !isEditingResponse && (
-                  <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-medium text-blue-900">
                         AI Suggested Response (Confidence: {selectedLead.response_confidence_score}/10)
                       </span>
@@ -949,7 +949,7 @@ export default function InboxPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => setIsEditingResponse(true)}
-                        className="text-xs"
+                        className="text-xs h-6"
                       >
                         <Edit3 className="h-3 w-3 mr-1" />
                         Edit
@@ -962,13 +962,13 @@ export default function InboxPage() {
                 )}
 
                 {/* CC/BCC Toggle */}
-                <div className="mb-2">
+                <div className="mb-1">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => setShowCcBcc(!showCcBcc)}
-                    className="text-xs"
+                    className="text-xs h-6"
                   >
                     {showCcBcc ? 'Hide' : 'Show'} CC/BCC
                   </Button>
@@ -1056,7 +1056,7 @@ export default function InboxPage() {
                 )}
 
                 {/* Rich Text Editor */}
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <RichTextEditor
                     content={messageToSend}
                     onChange={setMessageToSend}
@@ -1072,7 +1072,7 @@ export default function InboxPage() {
                     <div className="flex items-center gap-2">
                       <label
                         htmlFor="file-upload"
-                        className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="cursor-pointer inline-flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 rounded-md hover:bg-gray-50"
                       >
                         {uploading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1125,17 +1125,18 @@ export default function InboxPage() {
                         <Button
                           onClick={handleApproveAndSend}
                           disabled={sending || !messageToSend.trim()}
-                          className="flex-1"
+                          className="flex-1 h-8 text-sm"
                         >
-                          <CheckCircle className="h-4 w-4 mr-2" />
+                          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
                           {sending ? 'Sending...' : 'Approve & Send'}
                         </Button>
                         <Button
                           onClick={handleSendMessage}
                           disabled={sending || !messageToSend.trim()}
                           variant="outline"
+                          className="h-8 text-sm"
                         >
-                          <Send className="h-4 w-4 mr-2" />
+                          <Send className="h-3.5 w-3.5 mr-1.5" />
                           Send Different
                         </Button>
                       </>
@@ -1143,9 +1144,9 @@ export default function InboxPage() {
                       <Button
                         onClick={handleSendMessage}
                         disabled={sending || !messageToSend.trim()}
-                        className="flex-1"
+                        className="flex-1 h-8 text-sm"
                       >
-                        <Send className="h-4 w-4 mr-2" />
+                        <Send className="h-3.5 w-3.5 mr-1.5" />
                         {sending ? 'Sending...' : 'Send Message'}
                       </Button>
                     )}

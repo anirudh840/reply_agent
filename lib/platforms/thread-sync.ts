@@ -76,13 +76,19 @@ export async function refreshConversationThread(params: {
 
     // Build new thread from API data
     const newThread: ConversationMessage[] = [];
+    const leadEmail = lead.lead_email.toLowerCase();
 
     for (const apiReply of sorted) {
       const parsed = parseEmailThread(apiReply.body);
       const content = parsed.length > 0 ? parsed[0].content : apiReply.body;
 
+      // Determine direction: if from_email matches lead's email, it's inbound (lead)
+      // Otherwise it's an outbound message sent by the agent
+      const replyFromEmail = (apiReply.from_email || '').toLowerCase();
+      const isFromLead = replyFromEmail === leadEmail;
+
       newThread.push({
-        role: 'lead',
+        role: isFromLead ? 'lead' : 'agent',
         content,
         timestamp: apiReply.received_at,
         emailbison_message_id: apiReply.id,

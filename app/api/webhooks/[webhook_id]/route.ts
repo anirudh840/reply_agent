@@ -357,14 +357,20 @@ export async function POST(
 
             // Build thread: each API reply is a separate card
             // Parse each reply to strip quoted text (keep only the actual new content)
+            // Determine direction by comparing from_email with the lead's email
+            const leadEmailLower = reply.from_email_address.toLowerCase();
+
             for (const apiReply of sorted) {
               const parsed = parseEmailThread(apiReply.body);
               const actualContent = parsed.length > 0
                 ? parsed[0].content
                 : apiReply.body;
 
+              const replyFromEmail = (apiReply.from_email || '').toLowerCase();
+              const isFromLead = replyFromEmail === leadEmailLower;
+
               conversationThread.push({
-                role: 'lead',
+                role: isFromLead ? 'lead' : 'agent',
                 content: actualContent,
                 timestamp: apiReply.received_at,
                 emailbison_message_id: apiReply.id,
