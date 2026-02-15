@@ -1,7 +1,7 @@
 import type { AvailableSlot } from '../types';
 
 const CALCOM_BASE_URL = 'https://api.cal.com';
-const CALCOM_API_VERSION = '2024-08-13';
+const CALCOM_API_VERSION = '2024-06-14';
 
 export interface CalComEventType {
   id: number;

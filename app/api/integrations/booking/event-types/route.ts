@@ -21,49 +21,49 @@ export async function POST(request: NextRequest) {
     if (booking_platform === 'cal_com') {
       const client = new CalComClient(booking_api_key);
 
-      const connected = await client.testConnection();
-      if (!connected) {
+      try {
+        const eventTypes = await client.getEventTypes();
+
+        return NextResponse.json({
+          success: true,
+          data: eventTypes.map((et) => ({
+            id: et.id.toString(),
+            name: et.title,
+            duration: et.length,
+            booking_url: undefined, // Cal.com booking link is generated per event
+          })),
+        });
+      } catch (calError: any) {
+        console.error('[Booking] Cal.com error:', calError.message);
         return NextResponse.json(
-          { success: false, error: 'Invalid Cal.com API key' },
+          { success: false, error: `Cal.com error: ${calError.message}` },
           { status: 400 }
         );
       }
-
-      const eventTypes = await client.getEventTypes();
-
-      return NextResponse.json({
-        success: true,
-        data: eventTypes.map((et) => ({
-          id: et.id.toString(),
-          name: et.title,
-          duration: et.length,
-          booking_url: undefined, // Cal.com booking link is generated per event
-        })),
-      });
     }
 
     if (booking_platform === 'calendly') {
       const client = new CalendlyClient(booking_api_key);
 
-      const connected = await client.testConnection();
-      if (!connected) {
+      try {
+        const eventTypes = await client.getEventTypes();
+
+        return NextResponse.json({
+          success: true,
+          data: eventTypes.map((et) => ({
+            id: et.uri,
+            name: et.name,
+            duration: et.duration,
+            booking_url: et.scheduling_url,
+          })),
+        });
+      } catch (calendlyError: any) {
+        console.error('[Booking] Calendly error:', calendlyError.message);
         return NextResponse.json(
-          { success: false, error: 'Invalid Calendly API key' },
+          { success: false, error: `Calendly error: ${calendlyError.message}` },
           { status: 400 }
         );
       }
-
-      const eventTypes = await client.getEventTypes();
-
-      return NextResponse.json({
-        success: true,
-        data: eventTypes.map((et) => ({
-          id: et.uri,
-          name: et.name,
-          duration: et.duration,
-          booking_url: et.scheduling_url,
-        })),
-      });
     }
 
     return NextResponse.json(
