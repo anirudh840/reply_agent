@@ -491,7 +491,13 @@ export async function POST(
       // Execute booking action if AI requested one
       if (generatedResponse.booking_action) {
         try {
-          const bookingResult = await executeBookingAction(agent, generatedResponse.booking_action);
+          // Ensure lead details are populated (AI might omit them)
+          const bookingAction = {
+            ...generatedResponse.booking_action,
+            attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
+            attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
+          };
+          const bookingResult = await executeBookingAction(agent, bookingAction);
           if (bookingResult.success) {
             console.log(`[Webhook] Booking action executed:`, bookingResult);
           } else {

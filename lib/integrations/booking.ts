@@ -178,18 +178,26 @@ export async function executeBookingAction(
   }
 
   if (action.action === 'suggest_link') {
+    const link = client.getBookingLink();
+    if (!link) {
+      return { success: false, error: 'No booking link configured' };
+    }
     return {
       success: true,
-      bookingLink: client.getBookingLink(),
+      bookingLink: link,
     };
   }
 
   // action === 'book'
   if (!client.executeBooking) {
     // Platform doesn't support direct booking (e.g. Calendly)
+    const link = client.getBookingLink();
+    if (!link) {
+      return { success: false, error: 'No booking link configured for this platform' };
+    }
     return {
       success: true,
-      bookingLink: client.getBookingLink(),
+      bookingLink: link,
     };
   }
 
