@@ -197,6 +197,32 @@ export class EmailBisonClient implements PlatformClient {
     }
   }
 
+  /**
+   * Fetch all replies for a specific lead by lead_id.
+   * This gives us the full conversation thread from the platform.
+   */
+  async getRepliesByLeadId(leadId: string): Promise<PlatformReply[]> {
+    const queryParams = new URLSearchParams();
+    queryParams.append('lead_id', leadId);
+
+    const endpoint = `/replies?${queryParams.toString()}`;
+
+    try {
+      const response = await retryWithBackoff(
+        () => this.request<{ data: any[]; meta?: any }>(endpoint),
+        RATE_LIMITS.MAX_RETRIES
+      );
+
+      return response.data.map((reply) => this.mapApiReply(reply));
+    } catch (error) {
+      console.error(
+        `[EmailBison] Error fetching replies for lead ${leadId}:`,
+        error
+      );
+      return [];
+    }
+  }
+
   async getInterestedReplies(campaignId?: string): Promise<PlatformReply[]> {
     const filters: any = { status: 'interested' };
     if (campaignId) filters.campaign_id = campaignId;

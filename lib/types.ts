@@ -112,6 +112,8 @@ export interface ConversationMessage {
   content: string;
   timestamp: string;
   emailbison_message_id?: string;
+  is_quoted?: boolean; // Indicates if this message was extracted from a quoted reply
+  from?: string; // Name/email of the sender (extracted from quote header)
 }
 
 export interface InterestedLead {

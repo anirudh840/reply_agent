@@ -833,15 +833,16 @@ export default function InboxPage() {
                         }
 
                         const isLead = message.role === 'lead';
+                        const isQuoted = message.is_quoted || false;
 
                         return (
                           <div key={index} className="flex gap-3 relative z-10">
                             {/* Timeline Node */}
                             <div className={`flex-shrink-0 h-12 w-12 rounded-full border-4 border-gray-50 flex items-center justify-center ${
-                              isLead ? 'bg-blue-100' : 'bg-gray-200'
+                              isLead ? (isQuoted ? 'bg-blue-50' : 'bg-blue-100') : 'bg-gray-200'
                             }`}>
                               {isLead ? (
-                                <User className="h-5 w-5 text-blue-600" />
+                                <User className={`h-5 w-5 ${isQuoted ? 'text-blue-400' : 'text-blue-600'}`} />
                               ) : (
                                 <Bot className="h-5 w-5 text-gray-600" />
                               )}
@@ -849,22 +850,33 @@ export default function InboxPage() {
 
                             {/* Message Card */}
                             <div className="flex-1">
-                              <div className="rounded-lg border shadow-sm bg-white overflow-hidden">
+                              <div className={`rounded-lg border shadow-sm bg-white overflow-hidden ${
+                                isQuoted ? 'opacity-75 border-dashed' : ''
+                              }`}>
                                 {/* Colored Header */}
-                                <div className={`p-3 ${isLead ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                                <div className={`p-3 ${isLead ? (isQuoted ? 'bg-blue-25' : 'bg-blue-50') : 'bg-gray-50'}`}>
                                   <div className="flex items-start justify-between">
                                     <div className="flex-1">
                                       <div className="flex items-center gap-2 mb-1">
                                         <span className="text-sm font-semibold text-gray-900">
-                                          {isLead ? 'From:' : 'From:'} {
-                                            isLead
+                                          From: {
+                                            isQuoted && message.from
+                                              ? message.from
+                                              : isLead
                                               ? selectedLead.lead_name || 'Lead'
                                               : getAgent(selectedLead.agent_id)?.name || 'AI Agent'
                                           }
                                         </span>
-                                        <Badge variant={isLead ? 'default' : 'secondary'} className="text-xs">
-                                          {isLead ? 'Inbound' : 'Outbound'}
-                                        </Badge>
+                                        <div className="flex gap-1">
+                                          <Badge variant={isLead ? 'default' : 'secondary'} className="text-xs">
+                                            {isLead ? 'Inbound' : 'Outbound'}
+                                          </Badge>
+                                          {isQuoted && (
+                                            <Badge variant="outline" className="text-xs text-gray-500">
+                                              Quoted
+                                            </Badge>
+                                          )}
+                                        </div>
                                       </div>
                                       <div className="text-xs text-gray-600 space-y-0.5">
                                         <div>

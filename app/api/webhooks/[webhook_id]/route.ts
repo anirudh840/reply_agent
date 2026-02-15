@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClientForAgent } from '@/lib/platforms';
-import type { PlatformType } from '@/lib/platforms/types';
+import { EmailBisonClient } from '@/lib/platforms/emailbison';
+import type { PlatformType, PlatformReply } from '@/lib/platforms/types';
 import type { NormalizedWebhookReply } from '@/lib/platforms/types';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
@@ -10,7 +11,10 @@ import {
   getReplyByEmailBisonId,
   updateInterestedLead,
   getAllAgents,
+  getInterestedLeadByEmail,
 } from '@/lib/supabase/queries';
+import { parseEmailThread } from '@/lib/utils/email-parser';
+import type { ConversationMessage } from '@/lib/types';
 
 // =====================================================
 // WEBHOOK PAYLOAD NORMALIZERS
@@ -321,15 +325,158 @@ export async function POST(
       `[Webhook] Categorized reply as ${categorization.is_truly_interested ? 'interested' : 'not interested'} (confidence: ${categorization.confidence_score}/10)`
     );
 
-    // Only process further if truly interested
-    if (categorization.is_truly_interested) {
+    // ===================================================================
+    // BUILD CONVERSATION THREAD
+    // Strategy:
+    //  1. Try to fetch full conversation from platform API (lead_id filter)
+    //  2. Fall back to parsing quoted text from the current reply body
+    // ===================================================================
+
+    let conversationThread: ConversationMessage[] = [];
+    const leadId = reply.lead_data?.id?.toString();
+
+    // Step 1: Try fetching the full thread from the platform API
+    if (leadId && platform === 'emailbison') {
+      try {
+        const platformClient = createClientForAgent(agent);
+        if (platformClient instanceof EmailBisonClient) {
+          const allReplies = await platformClient.getRepliesByLeadId(leadId);
+
+          if (allReplies.length > 0) {
+            console.log(
+              `[Webhook] Fetched ${allReplies.length} replies from API for lead ${leadId}`
+            );
+
+            // Sort by date ascending (oldest first) for chronological order
+            const sorted = [...allReplies].sort(
+              (a, b) =>
+                new Date(a.received_at).getTime() -
+                new Date(b.received_at).getTime()
+            );
+
+            // Build thread: each API reply is a separate card
+            // Parse each reply to strip quoted text (keep only the actual new content)
+            for (const apiReply of sorted) {
+              const parsed = parseEmailThread(apiReply.body);
+              const actualContent = parsed.length > 0
+                ? parsed[0].content
+                : apiReply.body;
+
+              conversationThread.push({
+                role: 'lead',
+                content: actualContent,
+                timestamp: apiReply.received_at,
+                emailbison_message_id: apiReply.id,
+                from: apiReply.from_name || apiReply.from_email,
+              });
+            }
+          }
+        }
+      } catch (apiError) {
+        console.warn(
+          '[Webhook] Could not fetch thread from API, falling back to parsing:',
+          apiError
+        );
+      }
+    }
+
+    // Step 2: If API didn't yield results, parse the inline quoted text
+    if (conversationThread.length === 0) {
+      const parsedMessages = parseEmailThread(
+        reply.text_body || '',
+        reply.html_body
+      );
+      console.log(
+        `[Webhook] Parsed ${parsedMessages.length} messages from email body`
+      );
+
+      conversationThread = parsedMessages.map((msg, index) => ({
+        role: 'lead' as const,
+        content: msg.content,
+        timestamp:
+          index === 0
+            ? reply.date_received || new Date().toISOString()
+            : msg.date || new Date().toISOString(),
+        emailbison_message_id: index === 0 ? reply.id : undefined,
+        is_quoted: msg.isQuoted,
+        from: msg.from || (index === 0 ? reply.from_name : undefined),
+      }));
+    }
+
+    // If we still have nothing, create a single-message thread
+    if (conversationThread.length === 0) {
+      conversationThread = [
+        {
+          role: 'lead',
+          content: reply.text_body || '',
+          timestamp: reply.date_received || new Date().toISOString(),
+          emailbison_message_id: reply.id,
+          from: reply.from_name,
+        },
+      ];
+    }
+
+    // Also include the original outbound email info from the webhook payload
+    // if available (scheduled_email data)
+    const scheduledEmail = reply.lead_data?.reply_raw
+      ? undefined // Already in lead_data
+      : webhookData?.data?.scheduled_email;
+    const senderEmail = webhookData?.data?.sender_email;
+
+    if (
+      scheduledEmail?.sent_at &&
+      senderEmail?.email &&
+      !conversationThread.some(
+        (m) => m.role === 'agent' && !m.is_quoted
+      )
+    ) {
+      // We don't have the body of the original sent email from the webhook,
+      // but we can add a placeholder showing it was sent
+      // The actual content will be visible in the quoted portion of the reply
+      const quotedOriginal = conversationThread.find(
+        (m) => m.is_quoted && m.role === 'lead'
+      );
+
+      if (quotedOriginal) {
+        // Convert the quoted message to an agent outbound
+        quotedOriginal.role = 'agent';
+        quotedOriginal.from =
+          senderEmail.name || senderEmail.email;
+        quotedOriginal.timestamp = scheduledEmail.sent_at;
+        quotedOriginal.is_quoted = false;
+      }
+    }
+
+    // Check if this lead already exists (for follow-up replies)
+    const existingLead = await getInterestedLeadByEmail(agent.id, reply.from_email_address);
+
+    // CREATE INTERESTED_LEAD FOR ALL REPLIES (not just interested ones)
+    // This ensures all replies appear in the master inbox
+    if (existingLead) {
+      // Update existing lead with new message
+      const updatedThread = [
+        ...existingLead.conversation_thread,
+        ...conversationThread,
+      ];
+
+      await updateInterestedLead(existingLead.id, {
+        conversation_thread: updatedThread,
+        last_lead_reply_at: reply.date_received || new Date().toISOString(),
+        conversation_status: 'active',
+      });
+
+      console.log(`[Webhook] Updated existing lead ${existingLead.id} with new reply`);
+    }
+
+    // Only generate AI response if truly interested
+    if (categorization.is_truly_interested && !existingLead) {
       // Generate response for interested lead
       const generatedResponse = await generateResponse({
         leadEmail: reply.from_email_address,
         leadName: reply.from_name,
-        leadMessage: reply.text_body || '',
+        leadMessage: conversationThread[conversationThread.length - 1]?.content || reply.text_body || '',
         agent,
-        conversationHistory: [],
+        conversationHistory: conversationThread.slice(1), // Pass quoted messages as history
       });
 
       // Determine if approval is needed
@@ -337,21 +484,14 @@ export async function POST(
         agent.mode === 'human_in_loop' ||
         generatedResponse.confidence_score <= agent.confidence_threshold;
 
-      // Create interested lead record
+      // Create interested lead record with parsed conversation thread
       const interestedLead = await createInterestedLead({
         agent_id: agent.id,
         initial_reply_id: replyRecord.id,
         lead_email: reply.from_email_address,
         lead_name: reply.from_name,
         lead_metadata: reply.lead_data,
-        conversation_thread: [
-          {
-            role: 'lead' as const,
-            content: reply.text_body || '',
-            timestamp: reply.date_received || new Date().toISOString(),
-            emailbison_message_id: reply.id,
-          },
-        ],
+        conversation_thread: conversationThread,
         last_response_generated: generatedResponse.content,
         response_confidence_score: generatedResponse.confidence_score,
         last_lead_reply_at: reply.date_received || new Date().toISOString(),
@@ -417,16 +557,46 @@ export async function POST(
         },
       });
     } else {
-      // Not interested - just store and skip
-      console.log(`[Webhook] Reply marked as not interested, stored but no response generated`);
+      // Not interested - still create lead record for inbox visibility
+      // but don't generate AI response
+      if (!existingLead) {
+        const interestedLead = await createInterestedLead({
+          agent_id: agent.id,
+          initial_reply_id: replyRecord.id,
+          lead_email: reply.from_email_address,
+          lead_name: reply.from_name,
+          lead_metadata: reply.lead_data,
+          conversation_thread: conversationThread,
+          last_lead_reply_at: reply.date_received || new Date().toISOString(),
+          needs_approval: false,
+          conversation_status: 'paused', // Mark as paused since no AI response
+          followup_stage: 0,
+        });
 
-      return NextResponse.json({
-        success: true,
-        message: 'Reply processed as not interested',
-        data: {
-          reply_id: replyRecord.id,
-        },
-      });
+        console.log(
+          `[Webhook] Reply marked as not interested, created lead record ${interestedLead.id} for visibility`
+        );
+
+        return NextResponse.json({
+          success: true,
+          message: 'Reply processed as not interested',
+          data: {
+            reply_id: replyRecord.id,
+            lead_id: interestedLead.id,
+          },
+        });
+      } else {
+        console.log(`[Webhook] Updated existing lead with not interested reply`);
+
+        return NextResponse.json({
+          success: true,
+          message: 'Reply processed as not interested',
+          data: {
+            reply_id: replyRecord.id,
+            lead_id: existingLead.id,
+          },
+        });
+      }
     }
   } catch (error: any) {
     console.error('[Webhook] Error processing webhook:', error);
