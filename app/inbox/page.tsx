@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,9 @@ import {
   Upload,
   Loader2,
   Reply,
+  ChevronLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { formatRelativeTime, safeFormatDate } from '@/lib/utils';
 import type { InterestedLead, Agent } from '@/lib/types';
@@ -83,6 +86,13 @@ export default function InboxPage() {
   const [threadOrder, setThreadOrder] = useState<'newest' | 'oldest'>('newest');
   const [threadExpanded, setThreadExpanded] = useState(false);
 
+  // Panel collapse states
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [middlePanelCollapsed, setMiddlePanelCollapsed] = useState(false);
+
+  // Ref for auto-scrolling to AI draft card in thread
+  const aiDraftRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchAgents();
     fetchLeads();
@@ -91,6 +101,64 @@ export default function InboxPage() {
   useEffect(() => {
     fetchLeads();
   }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, selectedCategory, dateRange]);
+
+  // Auto-scroll to AI draft card when selecting a lead that needs approval
+  useEffect(() => {
+    if (selectedLead?.needs_approval && selectedLead?.last_response_generated && aiDraftRef.current) {
+      const timer = setTimeout(() => {
+        aiDraftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedLead?.id, selectedLead?.needs_approval]);
+
+  // Restore panel collapse states from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('inbox-panel-state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        if (typeof state.leftPanelCollapsed === 'boolean') setLeftPanelCollapsed(state.leftPanelCollapsed);
+        if (typeof state.middlePanelCollapsed === 'boolean') setMiddlePanelCollapsed(state.middlePanelCollapsed);
+        if (typeof state.leadSidebarCollapsed === 'boolean') setLeadSidebarCollapsed(state.leadSidebarCollapsed);
+      }
+    } catch {
+      // Silently ignore corrupted localStorage
+    }
+  }, []);
+
+  // Persist panel collapse states to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('inbox-panel-state', JSON.stringify({
+        leftPanelCollapsed,
+        middlePanelCollapsed,
+        leadSidebarCollapsed,
+      }));
+    } catch {
+      // Silently ignore if localStorage is unavailable
+    }
+  }, [leftPanelCollapsed, middlePanelCollapsed, leadSidebarCollapsed]);
+
+  // Keyboard shortcuts for panel collapse: [ toggles left, ] toggles middle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === '[') {
+        setLeftPanelCollapsed(prev => !prev);
+      } else if (e.key === ']') {
+        setMiddlePanelCollapsed(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const fetchAgents = async () => {
     try {
@@ -490,11 +558,28 @@ export default function InboxPage() {
     <>
       <Toaster position="top-right" />
       <div className="flex h-screen bg-gray-50">
-      {/* LEFT PANEL - Categories & Filters (~20%) */}
-      <div className="w-64 border-r border-gray-200 flex flex-col bg-white">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900">Master Inbox</h1>
+      {/* LEFT PANEL - Categories & Filters (collapsible) */}
+      <div className={`border-r border-gray-200 flex flex-col bg-white transition-all duration-300 ease-in-out overflow-hidden ${
+        leftPanelCollapsed ? 'w-14' : 'w-64'
+      }`}>
+        {/* Header with collapse toggle */}
+        <div className="p-3 border-b border-gray-200 flex items-center justify-between min-h-[56px]">
+          {!leftPanelCollapsed && (
+            <h1 className="text-lg font-bold text-gray-900 whitespace-nowrap">Master Inbox</h1>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 flex-shrink-0"
+            onClick={() => setLeftPanelCollapsed(!leftPanelCollapsed)}
+            title={leftPanelCollapsed ? 'Expand categories & filters' : 'Collapse categories & filters'}
+          >
+            {leftPanelCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </Button>
         </div>
 
         {/* Categories */}
@@ -504,225 +589,272 @@ export default function InboxPage() {
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                title={leftPanelCollapsed ? category.label : undefined}
+                className={`w-full flex items-center ${leftPanelCollapsed ? 'justify-center px-2' : 'justify-between px-3'} py-2 rounded-lg text-sm transition-colors ${
                   selectedCategory === category.id
                     ? 'bg-blue-50 text-blue-700 font-medium'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <category.icon className={`h-4 w-4 ${selectedCategory === category.id ? 'text-blue-600' : category.color}`} />
-                  <span>{category.label}</span>
+                <div className={`flex items-center ${leftPanelCollapsed ? '' : 'gap-3'}`}>
+                  <category.icon className={`h-4 w-4 flex-shrink-0 ${selectedCategory === category.id ? 'text-blue-600' : category.color}`} />
+                  {!leftPanelCollapsed && <span className="whitespace-nowrap">{category.label}</span>}
                 </div>
-                <Badge variant="secondary" className="text-xs">
-                  {getCategoryCount(category.id)}
-                </Badge>
+                {!leftPanelCollapsed && (
+                  <Badge variant="secondary" className="text-xs">
+                    {getCategoryCount(category.id)}
+                  </Badge>
+                )}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="my-2 border-t border-gray-200" />
+        {/* Filters Section - Hidden when collapsed */}
+        {!leftPanelCollapsed && (
+          <>
+            {/* Divider */}
+            <div className="my-2 border-t border-gray-200" />
 
-        {/* Filters Section */}
-        <div className="px-4 py-2">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase mb-3">Filters</h2>
+            {/* Filters Section */}
+            <div className="px-4 py-2 overflow-y-auto">
+              <h2 className="text-xs font-semibold text-gray-500 uppercase mb-3">Filters</h2>
 
-          {/* Lead Status Filter */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">
-              Lead Status
-            </label>
-            <div className="flex flex-wrap gap-1">
-              {['active', 'completed', 'paused', 'unresponsive'].map((status) => (
-                <button
-                  key={status}
-                  onClick={() => toggleFilter(leadStatusFilter, setLeadStatusFilter, status)}
-                  className={`px-2 py-1 text-xs rounded-md border capitalize ${
-                    leadStatusFilter.includes(status)
-                      ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Agent Status Filter */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">
-              Agent Status
-            </label>
-            <div className="flex flex-wrap gap-1">
-              {['needs_approval', 'ai_responded', 'followup_sent'].map((status) => (
-                <button
-                  key={status}
-                  onClick={() => toggleFilter(agentStatusFilter, setAgentStatusFilter, status)}
-                  className={`px-2 py-1 text-xs rounded-md border capitalize ${
-                    agentStatusFilter.includes(status)
-                      ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {status.replace('_', ' ')}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Agent Filter */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">Agent</label>
-            <div className="space-y-1.5 max-h-32 overflow-y-auto">
-              {agents.map((agent) => (
-                <label key={agent.id} className="flex items-center gap-2 cursor-pointer text-xs">
-                  <input
-                    type="checkbox"
-                    checked={selectedAgentFilter.includes(agent.id)}
-                    onChange={() =>
-                      toggleFilter(selectedAgentFilter, setSelectedAgentFilter, agent.id)
-                    }
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-gray-700">{agent.name}</span>
+              {/* Lead Status Filter */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-gray-700 mb-2 block">
+                  Lead Status
                 </label>
-              ))}
-            </div>
-          </div>
+                <div className="flex flex-wrap gap-1">
+                  {['active', 'completed', 'paused', 'unresponsive'].map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => toggleFilter(leadStatusFilter, setLeadStatusFilter, status)}
+                      className={`px-2 py-1 text-xs rounded-md border capitalize ${
+                        leadStatusFilter.includes(status)
+                          ? 'bg-blue-100 border-blue-300 text-blue-700'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Date Range Filter */}
-          <div className="mb-3">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">Date Range</label>
-            <div className="space-y-2">
-              <input
-                type="date"
-                value={dateRange.from}
-                onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                placeholder="From"
-              />
-              <input
-                type="date"
-                value={dateRange.to}
-                onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                placeholder="To"
-              />
-            </div>
-          </div>
+              {/* Agent Status Filter */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-gray-700 mb-2 block">
+                  Agent Status
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {['needs_approval', 'ai_responded', 'followup_sent'].map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => toggleFilter(agentStatusFilter, setAgentStatusFilter, status)}
+                      className={`px-2 py-1 text-xs rounded-md border capitalize ${
+                        agentStatusFilter.includes(status)
+                          ? 'bg-blue-100 border-blue-300 text-blue-700'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {status.replace('_', ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Clear Filters */}
-          {(leadStatusFilter.length > 0 ||
-            agentStatusFilter.length > 0 ||
-            selectedAgentFilter.length > 0 ||
-            dateRange.from ||
-            dateRange.to) && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
-              onClick={() => {
-                setLeadStatusFilter([]);
-                setAgentStatusFilter([]);
-                setSelectedAgentFilter([]);
-                setDateRange({ from: '', to: '' });
-              }}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Clear All
-            </Button>
-          )}
-        </div>
+              {/* Agent Filter */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-gray-700 mb-2 block">Agent</label>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {agents.map((agent) => (
+                    <label key={agent.id} className="flex items-center gap-2 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={selectedAgentFilter.includes(agent.id)}
+                        onChange={() =>
+                          toggleFilter(selectedAgentFilter, setSelectedAgentFilter, agent.id)
+                        }
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">{agent.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date Range Filter */}
+              <div className="mb-3">
+                <label className="text-xs font-medium text-gray-700 mb-2 block">Date Range</label>
+                <div className="space-y-2">
+                  <input
+                    type="date"
+                    value={dateRange.from}
+                    onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                    placeholder="From"
+                  />
+                  <input
+                    type="date"
+                    value={dateRange.to}
+                    onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                    placeholder="To"
+                  />
+                </div>
+              </div>
+
+              {/* Clear Filters */}
+              {(leadStatusFilter.length > 0 ||
+                agentStatusFilter.length > 0 ||
+                selectedAgentFilter.length > 0 ||
+                dateRange.from ||
+                dateRange.to) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => {
+                    setLeadStatusFilter([]);
+                    setAgentStatusFilter([]);
+                    setSelectedAgentFilter([]);
+                    setDateRange({ from: '', to: '' });
+                  }}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear All
+                </Button>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />
 
         {/* Refresh Button */}
-        <div className="p-3 border-t border-gray-200">
-          <Button onClick={fetchLeads} disabled={loading} className="w-full" size="sm">
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+        <div className="p-2 border-t border-gray-200">
+          {leftPanelCollapsed ? (
+            <Button onClick={fetchLeads} disabled={loading} size="sm" className="w-full p-0 h-9" title="Refresh">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          ) : (
+            <Button onClick={fetchLeads} disabled={loading} className="w-full" size="sm">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* MIDDLE PANEL - Conversation List (~35%) */}
-      <div className="w-96 border-r border-gray-200 flex flex-col bg-white">
-        {/* Search Bar */}
-        <div className="p-3 border-b border-gray-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              placeholder="Search conversations..."
-              className="pl-10 text-sm"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+      {/* MIDDLE PANEL - Conversation List (collapsible) */}
+      <div className={`border-r border-gray-200 flex flex-col bg-white transition-all duration-300 ease-in-out overflow-hidden ${
+        middlePanelCollapsed ? 'w-14' : 'w-96'
+      }`}>
+        {/* Header with collapse toggle and search */}
+        <div className="p-3 border-b border-gray-200 min-h-[56px]">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 flex-shrink-0"
+              onClick={() => setMiddlePanelCollapsed(!middlePanelCollapsed)}
+              title={middlePanelCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
+            >
+              {middlePanelCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
+            </Button>
+            {!middlePanelCollapsed && (
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  placeholder="Search conversations..."
+                  className="pl-10 text-sm"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Conversation List */}
-        <div className="flex-1 overflow-y-auto">
-          {loading && leads.length === 0 ? (
-            <div className="flex h-32 items-center justify-center">
-              <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          ) : leads.length === 0 ? (
-            <div className="p-6 text-center">
-              <Mail className="mx-auto mb-3 h-10 w-10 text-gray-300" />
-              <p className="text-sm text-gray-500">No conversations found</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {leads.map((lead) => {
-                const lastMessage = lead.conversation_thread[lead.conversation_thread.length - 1];
-                const isSelected = selectedLead?.id === lead.id;
+        {/* Collapsed state: show conversation count */}
+        {middlePanelCollapsed ? (
+          <div className="flex-1 flex flex-col items-center pt-4">
+            <button
+              className="flex flex-col items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
+              onClick={() => setMiddlePanelCollapsed(false)}
+              title="Expand conversation list"
+            >
+              <Mail className="h-5 w-5" />
+              <span className="text-xs font-semibold">{leads.length}</span>
+            </button>
+          </div>
+        ) : (
+          /* Expanded state: full conversation list */
+          <div className="flex-1 overflow-y-auto">
+            {loading && leads.length === 0 ? (
+              <div className="flex h-32 items-center justify-center">
+                <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
+              </div>
+            ) : leads.length === 0 ? (
+              <div className="p-6 text-center">
+                <Mail className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+                <p className="text-sm text-gray-500">No conversations found</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {leads.map((lead) => {
+                  const lastMessage = lead.conversation_thread[lead.conversation_thread.length - 1];
+                  const isSelected = selectedLead?.id === lead.id;
 
-                return (
-                  <button
-                    key={lead.id}
-                    onClick={() => handleSelectLead(lead)}
-                    className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                      isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                    }`}
-                  >
-                    {/* Lead Name & Status */}
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-semibold text-gray-900 truncate">
-                          {lead.lead_name || 'Unknown Lead'}
-                        </h3>
-                        <p className="text-xs text-gray-500 truncate">{lead.lead_email}</p>
+                  return (
+                    <button
+                      key={lead.id}
+                      onClick={() => handleSelectLead(lead)}
+                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
+                        isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                      }`}
+                    >
+                      {/* Lead Name & Status */}
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-gray-900 truncate">
+                            {lead.lead_name || 'Unknown Lead'}
+                          </h3>
+                          <p className="text-xs text-gray-500 truncate">{lead.lead_email}</p>
+                        </div>
+                        <div className="ml-2 flex-shrink-0">
+                          <span className="text-xs text-gray-400">
+                            {formatRelativeTime(lead.updated_at)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="ml-2 flex-shrink-0">
-                        <span className="text-xs text-gray-400">
-                          {formatRelativeTime(lead.updated_at)}
+
+                      {/* Last Message Preview */}
+                      <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                        {lastMessage?.content || 'No messages'}
+                      </p>
+
+                      {/* Status Badge and Message Count */}
+                      <div className="flex items-center justify-between">
+                        {getStatusBadge(lead)}
+                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          {lead.conversation_thread.length}
                         </span>
                       </div>
-                    </div>
-
-                    {/* Last Message Preview */}
-                    <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                      {lastMessage?.content || 'No messages'}
-                    </p>
-
-                    {/* Status Badge and Message Count */}
-                    <div className="flex items-center justify-between">
-                      {getStatusBadge(lead)}
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        {lead.conversation_thread.length}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* RIGHT PANEL - Thread View & Lead Sidebar (~45%) */}
@@ -750,7 +882,7 @@ export default function InboxPage() {
                           AI Response Pending Approval
                         </h3>
                         <p className="text-xs text-yellow-700">
-                          AI confidence: {selectedLead.response_confidence_score}/10 - Please review and approve or edit the suggested response below.
+                          AI confidence: {selectedLead.response_confidence_score}/10 - Review the AI draft response in the thread below, then approve, edit, or send a different reply.
                         </p>
                         {selectedLead.approval_reason && (
                           <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-800 whitespace-pre-wrap">
@@ -992,227 +1124,358 @@ export default function InboxPage() {
                       </Button>
                     </div>
                   )}
+
+                  {/* AI Draft Response Card - shown inline in thread when needs_approval */}
+                  {selectedLead.needs_approval && selectedLead.last_response_generated && (
+                    <div ref={aiDraftRef} className="mt-4">
+                      <div className="flex gap-3 relative z-10">
+                        {/* Timeline Node */}
+                        <div className="flex-shrink-0 h-12 w-12 rounded-full border-4 border-gray-50 flex items-center justify-center bg-amber-100">
+                          <Bot className="h-5 w-5 text-amber-700" />
+                        </div>
+
+                        {/* Draft Card */}
+                        <div className="flex-1">
+                          <div className="rounded-lg border-2 border-amber-300 shadow-sm bg-white overflow-hidden">
+                            {/* Header */}
+                            <div className="p-3 bg-amber-50">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm font-semibold text-gray-900">
+                                      AI Draft Response
+                                    </span>
+                                    <Badge className="text-xs bg-amber-100 text-amber-800 border-amber-300">
+                                      Draft - Pending Approval
+                                    </Badge>
+                                    {selectedLead.response_confidence_score !== undefined && (
+                                      <Badge
+                                        variant={
+                                          (selectedLead.response_confidence_score || 0) >= 7
+                                            ? 'default'
+                                            : (selectedLead.response_confidence_score || 0) >= 4
+                                            ? 'secondary'
+                                            : 'destructive'
+                                        }
+                                        className="text-xs"
+                                      >
+                                        Confidence: {selectedLead.response_confidence_score}/10
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-gray-600">
+                                    <span className="font-medium">To:</span> {selectedLead.lead_email}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Draft Response Body */}
+                            <div className="p-4">
+                              <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                                {selectedLead.last_response_generated}
+                              </div>
+                            </div>
+
+                            {/* Approval Reason (if any) */}
+                            {selectedLead.approval_reason && (
+                              <div className="px-4 pb-3">
+                                <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                  <span className="font-semibold">Why approval needed: </span>
+                                  {selectedLead.approval_reason}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Message Composer */}
-              <div className="px-3 py-2 border-t border-gray-200 bg-white">
-                {/* AI Generated Response Notice */}
-                {selectedLead.needs_approval && selectedLead.last_response_generated && !isEditingResponse && (
-                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-blue-900">
-                        AI Suggested Response (Confidence: {selectedLead.response_confidence_score}/10)
+              {/* Composer Section - Compact bar when reviewing AI draft, full editor when editing or no approval needed */}
+              {selectedLead.needs_approval && selectedLead.last_response_generated && !isEditingResponse ? (
+                /* Compact Approval Action Bar */
+                <div className="px-4 py-3 border-t border-gray-200 bg-white">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={handleApproveAndSend}
+                        disabled={sending}
+                        size="sm"
+                        className="h-9 text-sm bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1.5" />
+                        {sending ? 'Sending...' : 'Approve & Send'}
+                      </Button>
+                      <Button
+                        onClick={() => setIsEditingResponse(true)}
+                        variant="outline"
+                        size="sm"
+                        className="h-9 text-sm"
+                      >
+                        <Edit3 className="h-4 w-4 mr-1.5" />
+                        Edit Response
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setIsEditingResponse(true);
+                          setMessageToSend('');
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-sm text-gray-600"
+                      >
+                        <Send className="h-4 w-4 mr-1.5" />
+                        Send Different
+                      </Button>
+                    </div>
+                    {selectedLead.response_confidence_score !== undefined && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <Bot className="h-4 w-4" />
+                        <span>AI Confidence:</span>
+                        <Badge
+                          variant={
+                            (selectedLead.response_confidence_score || 0) >= 7
+                              ? 'default'
+                              : (selectedLead.response_confidence_score || 0) >= 4
+                              ? 'secondary'
+                              : 'destructive'
+                          }
+                          className="text-xs"
+                        >
+                          {selectedLead.response_confidence_score}/10
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Full Composer (editing mode or no approval needed) */
+                <div className="px-3 py-2 border-t border-gray-200 bg-white">
+                  {/* Editing notice - only when editing an AI draft */}
+                  {selectedLead.needs_approval && isEditingResponse && (
+                    <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded-md flex items-center justify-between">
+                      <span className="text-xs font-medium text-amber-900">
+                        Editing AI Draft Response
                       </span>
                       <Button
                         size="sm"
-                        variant="outline"
-                        onClick={() => setIsEditingResponse(true)}
+                        variant="ghost"
+                        onClick={() => {
+                          setIsEditingResponse(false);
+                          // Reset to original AI response
+                          if (selectedLead.last_response_generated) {
+                            const htmlContent = selectedLead.last_response_generated
+                              .split('\n\n')
+                              .map((paragraph: string) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+                              .join('');
+                            setMessageToSend(htmlContent);
+                          }
+                        }}
                         className="text-xs h-6"
                       >
-                        <Edit3 className="h-3 w-3 mr-1" />
-                        Edit
+                        <X className="h-3 w-3 mr-1" />
+                        Cancel Edit
                       </Button>
                     </div>
-                    <div className="text-xs text-blue-700">
-                      Review the AI-generated response below. You can edit it before sending.
-                    </div>
+                  )}
+
+                  {/* CC/BCC Toggle */}
+                  <div className="mb-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCcBcc(!showCcBcc)}
+                      className="text-xs h-6"
+                    >
+                      {showCcBcc ? 'Hide' : 'Show'} CC/BCC
+                    </Button>
                   </div>
-                )}
 
-                {/* CC/BCC Toggle */}
-                <div className="mb-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowCcBcc(!showCcBcc)}
-                    className="text-xs h-6"
-                  >
-                    {showCcBcc ? 'Hide' : 'Show'} CC/BCC
-                  </Button>
-                </div>
-
-                {/* CC/BCC Fields */}
-                {showCcBcc && (
-                  <div className="space-y-2 mb-3">
-                    {/* CC Field */}
-                    <div>
-                      <label className="text-xs font-medium text-gray-700 mb-1 block">CC</label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="email"
-                          placeholder="Add CC recipient..."
-                          value={ccInput}
-                          onChange={(e) => setCcInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddCcRecipient();
-                            }
-                          }}
-                          className="text-sm"
-                        />
-                        <Button type="button" size="sm" onClick={handleAddCcRecipient}>
-                          Add
-                        </Button>
-                      </div>
-                      {ccRecipients.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {ccRecipients.map((email) => (
-                            <Badge key={email} variant="secondary" className="text-xs">
-                              {email}
-                              <button
-                                onClick={() => handleRemoveCcRecipient(email)}
-                                className="ml-1 hover:text-red-600"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </Badge>
-                          ))}
+                  {/* CC/BCC Fields */}
+                  {showCcBcc && (
+                    <div className="space-y-2 mb-3">
+                      {/* CC Field */}
+                      <div>
+                        <label className="text-xs font-medium text-gray-700 mb-1 block">CC</label>
+                        <div className="flex gap-2">
+                          <Input
+                            type="email"
+                            placeholder="Add CC recipient..."
+                            value={ccInput}
+                            onChange={(e) => setCcInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCcRecipient();
+                              }
+                            }}
+                            className="text-sm"
+                          />
+                          <Button type="button" size="sm" onClick={handleAddCcRecipient}>
+                            Add
+                          </Button>
                         </div>
-                      )}
-                    </div>
-
-                    {/* BCC Field */}
-                    <div>
-                      <label className="text-xs font-medium text-gray-700 mb-1 block">BCC</label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="email"
-                          placeholder="Add BCC recipient..."
-                          value={bccInput}
-                          onChange={(e) => setBccInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddBccRecipient();
-                            }
-                          }}
-                          className="text-sm"
-                        />
-                        <Button type="button" size="sm" onClick={handleAddBccRecipient}>
-                          Add
-                        </Button>
-                      </div>
-                      {bccRecipients.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {bccRecipients.map((email) => (
-                            <Badge key={email} variant="secondary" className="text-xs">
-                              {email}
-                              <button
-                                onClick={() => handleRemoveBccRecipient(email)}
-                                className="ml-1 hover:text-red-600"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Rich Text Editor */}
-                <div className="space-y-2">
-                  <RichTextEditor
-                    key={selectedLead.id}
-                    content={messageToSend}
-                    onChange={setMessageToSend}
-                    placeholder={
-                      selectedLead.needs_approval
-                        ? 'Review and edit AI response...'
-                        : 'Type your message...'
-                    }
-                  />
-
-                  {/* File Attachments */}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <label
-                        htmlFor="file-upload"
-                        className="cursor-pointer inline-flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 rounded-md hover:bg-gray-50"
-                      >
-                        {uploading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Paperclip className="h-4 w-4" />
-                        )}
-                        {uploading ? 'Uploading...' : 'Attach File'}
-                      </label>
-                      <input
-                        id="file-upload"
-                        type="file"
-                        onChange={handleFileUpload}
-                        disabled={uploading}
-                        className="hidden"
-                      />
-                    </div>
-
-                    {attachments.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {attachments.map((attachment) => (
-                          <div
-                            key={attachment.url}
-                            className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200"
-                          >
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                              <span className="text-sm text-gray-700 truncate">
-                                {attachment.filename}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                ({(attachment.size / 1024).toFixed(1)} KB)
-                              </span>
-                            </div>
-                            <button
-                              onClick={() => handleRemoveAttachment(attachment.url)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                        {ccRecipients.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {ccRecipients.map((email) => (
+                              <Badge key={email} variant="secondary" className="text-xs">
+                                {email}
+                                <button
+                                  onClick={() => handleRemoveCcRecipient(email)}
+                                  className="ml-1 hover:text-red-600"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* Send Buttons */}
-                  <div className="flex gap-2">
-                    {selectedLead.needs_approval ? (
-                      <>
-                        <Button
-                          onClick={handleApproveAndSend}
-                          disabled={sending || !messageToSend.trim()}
-                          className="flex-1 h-8 text-sm"
+                      {/* BCC Field */}
+                      <div>
+                        <label className="text-xs font-medium text-gray-700 mb-1 block">BCC</label>
+                        <div className="flex gap-2">
+                          <Input
+                            type="email"
+                            placeholder="Add BCC recipient..."
+                            value={bccInput}
+                            onChange={(e) => setBccInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddBccRecipient();
+                              }
+                            }}
+                            className="text-sm"
+                          />
+                          <Button type="button" size="sm" onClick={handleAddBccRecipient}>
+                            Add
+                          </Button>
+                        </div>
+                        {bccRecipients.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {bccRecipients.map((email) => (
+                              <Badge key={email} variant="secondary" className="text-xs">
+                                {email}
+                                <button
+                                  onClick={() => handleRemoveBccRecipient(email)}
+                                  className="ml-1 hover:text-red-600"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rich Text Editor */}
+                  <div className="space-y-2">
+                    <RichTextEditor
+                      key={`${selectedLead.id}-${isEditingResponse}`}
+                      content={messageToSend}
+                      onChange={setMessageToSend}
+                      placeholder={
+                        selectedLead.needs_approval
+                          ? 'Review and edit AI response...'
+                          : 'Type your message...'
+                      }
+                    />
+
+                    {/* File Attachments */}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor="file-upload"
+                          className="cursor-pointer inline-flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 rounded-md hover:bg-gray-50"
                         >
-                          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
-                          {sending ? 'Sending...' : 'Approve & Send'}
-                        </Button>
+                          {uploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Paperclip className="h-4 w-4" />
+                          )}
+                          {uploading ? 'Uploading...' : 'Attach File'}
+                        </label>
+                        <input
+                          id="file-upload"
+                          type="file"
+                          onChange={handleFileUpload}
+                          disabled={uploading}
+                          className="hidden"
+                        />
+                      </div>
+
+                      {attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {attachments.map((attachment) => (
+                            <div
+                              key={attachment.url}
+                              className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200"
+                            >
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                                <span className="text-sm text-gray-700 truncate">
+                                  {attachment.filename}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  ({(attachment.size / 1024).toFixed(1)} KB)
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveAttachment(attachment.url)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Send Buttons */}
+                    <div className="flex gap-2">
+                      {selectedLead.needs_approval ? (
+                        <>
+                          <Button
+                            onClick={handleApproveAndSend}
+                            disabled={sending || !messageToSend.trim()}
+                            className="flex-1 h-8 text-sm"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                            {sending ? 'Sending...' : 'Approve & Send'}
+                          </Button>
+                          <Button
+                            onClick={handleSendMessage}
+                            disabled={sending || !messageToSend.trim()}
+                            variant="outline"
+                            className="h-8 text-sm"
+                          >
+                            <Send className="h-3.5 w-3.5 mr-1.5" />
+                            Send Different
+                          </Button>
+                        </>
+                      ) : (
                         <Button
                           onClick={handleSendMessage}
                           disabled={sending || !messageToSend.trim()}
-                          variant="outline"
-                          className="h-8 text-sm"
+                          className="flex-1 h-8 text-sm"
                         >
                           <Send className="h-3.5 w-3.5 mr-1.5" />
-                          Send Different
+                          {sending ? 'Sending...' : 'Send Message'}
                         </Button>
-                      </>
-                    ) : (
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={sending || !messageToSend.trim()}
-                        className="flex-1 h-8 text-sm"
-                      >
-                        <Send className="h-3.5 w-3.5 mr-1.5" />
-                        {sending ? 'Sending...' : 'Send Message'}
-                      </Button>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
             {/* Lead Details Sidebar (Collapsible) */}
             {!leadSidebarCollapsed && (
