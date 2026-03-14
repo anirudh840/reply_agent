@@ -172,9 +172,9 @@ export class EmailBisonClient implements PlatformClient {
       );
     }
 
-    return retryWithBackoff(
+    const response = await retryWithBackoff(
       () =>
-        this.request<PlatformSendResult>(
+        this.request<any>(
           `/replies/${params.replyId}/reply`,
           {
             method: 'POST',
@@ -183,6 +183,14 @@ export class EmailBisonClient implements PlatformClient {
         ),
       RATE_LIMITS.MAX_RETRIES
     );
+
+    // Normalize the response to PlatformSendResult.
+    // If we reached here without an exception, the HTTP request succeeded (2xx).
+    // The raw API response may not have a `success` field, so we explicitly set it.
+    return {
+      success: true,
+      message_id: response?.message_id || response?.id?.toString(),
+    };
   }
 
   async markAsInterested(replyId: string): Promise<{ success: boolean }> {
