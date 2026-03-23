@@ -65,6 +65,16 @@ export async function POST(request: NextRequest) {
       attachments: attachments || [],
     });
 
+    if (!sendResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to send email via platform',
+        },
+        { status: 502 }
+      );
+    }
+
     const now = new Date().toISOString();
 
     // Refresh thread from the platform API to get the complete conversation

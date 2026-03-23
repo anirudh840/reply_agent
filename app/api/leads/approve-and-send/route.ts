@@ -38,8 +38,9 @@ export async function POST(request: NextRequest) {
     // Get agent details
     const agent = await getAgent(lead.agent_id);
 
-    // Check if message was edited
-    const wasEdited = message !== lead.last_response_generated;
+    // Check if message was edited (strip HTML since TipTap sends HTML, DB stores plain text)
+    const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    const wasEdited = stripHtml(message) !== (lead.last_response_generated || '').trim();
 
     // Log feedback for learning
     if (wasEdited) {
@@ -98,6 +99,16 @@ export async function POST(request: NextRequest) {
       bcc: bcc || [],
       attachments: attachments || [],
     });
+
+    if (!sendResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to send email via platform',
+        },
+        { status: 502 }
+      );
+    }
 
     const now = new Date().toISOString();
 

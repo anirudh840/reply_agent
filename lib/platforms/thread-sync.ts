@@ -104,7 +104,14 @@ export async function refreshConversationThread(params: {
       const alreadyExists = newThread.some(
         (m) =>
           m.role === 'agent' &&
-          m.emailbison_message_id === agentMsg.emailbison_message_id
+          (
+            // Match by message ID if both have one
+            (m.emailbison_message_id && agentMsg.emailbison_message_id &&
+              m.emailbison_message_id === agentMsg.emailbison_message_id) ||
+            // Fallback: match by timestamp + content to prevent duplicates when IDs are missing
+            (!m.emailbison_message_id && !agentMsg.emailbison_message_id &&
+              m.timestamp === agentMsg.timestamp && m.content === agentMsg.content)
+          )
       );
       if (!alreadyExists) {
         newThread.push(agentMsg);

@@ -184,9 +184,19 @@ export class EmailBisonClient implements PlatformClient {
       RATE_LIMITS.MAX_RETRIES
     );
 
-    // Normalize the response to PlatformSendResult.
-    // If we reached here without an exception, the HTTP request succeeded (2xx).
-    // The raw API response may not have a `success` field, so we explicitly set it.
+    // Log raw response for production debugging
+    console.log('[EmailBison] sendReply raw response:', JSON.stringify(response));
+
+    // Validate the response body for failure indicators
+    if (response?.success === false || response?.status === 'failed' || response?.error) {
+      throw new PlatformError(
+        response?.error || response?.message || 'EmailBison API returned failure in response body',
+        'emailbison',
+        200,
+        response
+      );
+    }
+
     return {
       success: true,
       message_id: response?.message_id || response?.id?.toString(),

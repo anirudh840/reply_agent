@@ -13,7 +13,6 @@ import {
   CheckCircle,
   AlertCircle,
   Send,
-  Edit3,
   User,
   Building2,
   Calendar,
@@ -63,7 +62,6 @@ export default function InboxPage() {
 
   // Message states
   const [messageToSend, setMessageToSend] = useState('');
-  const [isEditingResponse, setIsEditingResponse] = useState(false);
 
   // Email composition states
   const [showCcBcc, setShowCcBcc] = useState(false);
@@ -100,7 +98,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     fetchLeads();
-  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, selectedCategory, dateRange]);
+  }, [leadStatusFilter, agentStatusFilter, selectedAgentFilter, selectedCategory, dateRange, searchQuery]);
 
   // Auto-scroll to AI draft card when selecting a lead that needs approval
   useEffect(() => {
@@ -276,13 +274,23 @@ export default function InboxPage() {
 
         setLeads(filteredLeads);
 
-        // Auto-select first lead if none selected
-        if (!selectedLead && filteredLeads.length > 0) {
+        // Refresh selectedLead with fresh data, or auto-select first lead
+        if (selectedLead) {
+          const updatedLead = filteredLeads.find((l: InterestedLead) => l.id === selectedLead.id);
+          if (updatedLead) {
+            setSelectedLead(updatedLead);
+          } else {
+            // Lead no longer in filtered list (e.g., status changed and filter excludes it)
+            setSelectedLead(null);
+            setMessageToSend('');
+          }
+        } else if (filteredLeads.length > 0) {
           handleSelectLead(filteredLeads[0]);
         }
       }
     } catch (error) {
       console.error('Error fetching leads:', error);
+      toast.error('Failed to load conversations');
     } finally {
       setLoading(false);
     }
@@ -301,11 +309,32 @@ export default function InboxPage() {
     } else {
       setMessageToSend('');
     }
-    setIsEditingResponse(false);
+  };
+
+  const applyOptimisticUpdate = (messageSent: string) => {
+    if (!selectedLead) return;
+    const now = new Date().toISOString();
+    const optimisticLead = {
+      ...selectedLead,
+      needs_approval: false,
+      last_response_sent: messageSent,
+      last_response_sent_at: now,
+      conversation_thread: [
+        ...selectedLead.conversation_thread,
+        {
+          role: 'agent' as const,
+          content: messageSent,
+          timestamp: now,
+        },
+      ],
+    };
+    setSelectedLead(optimisticLead);
   };
 
   const handleSendMessage = async () => {
     if (!selectedLead || !messageToSend.trim()) return;
+    const previousLead = selectedLead;
+    const sentMessage = messageToSend;
 
     setSending(true);
     try {
@@ -325,6 +354,7 @@ export default function InboxPage() {
 
       if (data.success) {
         toast.success('Message sent successfully!');
+        applyOptimisticUpdate(sentMessage);
         setMessageToSend('');
         setCcRecipients([]);
         setBccRecipients([]);
@@ -337,6 +367,8 @@ export default function InboxPage() {
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
+      // Rollback optimistic update on failure
+      setSelectedLead(previousLead);
     } finally {
       setSending(false);
     }
@@ -344,6 +376,8 @@ export default function InboxPage() {
 
   const handleApproveAndSend = async () => {
     if (!selectedLead) return;
+    const previousLead = selectedLead;
+    const sentMessage = messageToSend;
 
     setSending(true);
     try {
@@ -363,6 +397,7 @@ export default function InboxPage() {
 
       if (data.success) {
         toast.success('Response approved and sent!');
+        applyOptimisticUpdate(sentMessage);
         setMessageToSend('');
         setCcRecipients([]);
         setBccRecipients([]);
@@ -375,6 +410,8 @@ export default function InboxPage() {
     } catch (error) {
       console.error('Error approving message:', error);
       toast.error('Failed to approve and send');
+      // Rollback optimistic update on failure
+      setSelectedLead(previousLead);
     } finally {
       setSending(false);
     }
@@ -484,6 +521,8 @@ export default function InboxPage() {
       toast.error('Failed to upload file');
     } finally {
       setUploading(false);
+      // Reset file input so the same file can be re-selected
+      e.target.value = '';
     }
   };
 
@@ -1033,7 +1072,7 @@ export default function InboxPage() {
                         const isQuoted = message.is_quoted || false;
 
                         return (
-                          <div key={index} className="flex gap-3 relative z-10">
+                          <div key={`${message.role}-${message.timestamp}-${index}`} className="flex gap-3 relative z-10">
                             {/* Timeline Node */}
                             <div className={`flex-shrink-0 h-12 w-12 rounded-full border-4 border-gray-50 flex items-center justify-center ${
                               isLead ? (isQuoted ? 'bg-blue-50' : 'bg-blue-100') : 'bg-gray-200'
@@ -1194,47 +1233,16 @@ export default function InboxPage() {
                 </div>
               </div>
 
-              {/* Composer Section - Compact bar when reviewing AI draft, full editor when editing or no approval needed */}
-              {selectedLead.needs_approval && selectedLead.last_response_generated && !isEditingResponse ? (
-                /* Compact Approval Action Bar */
-                <div className="px-4 py-3 border-t border-gray-200 bg-white">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={handleApproveAndSend}
-                        disabled={sending}
-                        size="sm"
-                        className="h-9 text-sm bg-green-600 hover:bg-green-700"
-                      >
-                        <CheckCircle className="h-4 w-4 mr-1.5" />
-                        {sending ? 'Sending...' : 'Approve & Send'}
-                      </Button>
-                      <Button
-                        onClick={() => setIsEditingResponse(true)}
-                        variant="outline"
-                        size="sm"
-                        className="h-9 text-sm"
-                      >
-                        <Edit3 className="h-4 w-4 mr-1.5" />
-                        Edit Response
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          setIsEditingResponse(true);
-                          setMessageToSend('');
-                        }}
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 text-sm text-gray-600"
-                      >
-                        <Send className="h-4 w-4 mr-1.5" />
-                        Send Different
-                      </Button>
-                    </div>
-                    {selectedLead.response_confidence_score !== undefined && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Bot className="h-4 w-4" />
-                        <span>AI Confidence:</span>
+              {/* Composer Section - Always show editor */}
+                <div className="px-3 py-2 border-t border-gray-200 bg-white">
+                  {/* AI Draft info banner */}
+                  {selectedLead.needs_approval && selectedLead.last_response_generated && (
+                    <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded-md flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-4 w-4 text-amber-700" />
+                        <span className="text-xs font-medium text-amber-900">AI Draft Response — edit below if needed</span>
+                      </div>
+                      {selectedLead.response_confidence_score !== undefined && (
                         <Badge
                           variant={
                             (selectedLead.response_confidence_score || 0) >= 7
@@ -1245,40 +1253,9 @@ export default function InboxPage() {
                           }
                           className="text-xs"
                         >
-                          {selectedLead.response_confidence_score}/10
+                          Confidence: {selectedLead.response_confidence_score}/10
                         </Badge>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Full Composer (editing mode or no approval needed) */
-                <div className="px-3 py-2 border-t border-gray-200 bg-white">
-                  {/* Editing notice - only when editing an AI draft */}
-                  {selectedLead.needs_approval && isEditingResponse && (
-                    <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded-md flex items-center justify-between">
-                      <span className="text-xs font-medium text-amber-900">
-                        Editing AI Draft Response
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setIsEditingResponse(false);
-                          // Reset to original AI response
-                          if (selectedLead.last_response_generated) {
-                            const htmlContent = selectedLead.last_response_generated
-                              .split('\n\n')
-                              .map((paragraph: string) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
-                              .join('');
-                            setMessageToSend(htmlContent);
-                          }
-                        }}
-                        className="text-xs h-6"
-                      >
-                        <X className="h-3 w-3 mr-1" />
-                        Cancel Edit
-                      </Button>
+                      )}
                     </div>
                   )}
 
@@ -1379,7 +1356,7 @@ export default function InboxPage() {
                   {/* Rich Text Editor */}
                   <div className="space-y-2">
                     <RichTextEditor
-                      key={`${selectedLead.id}-${isEditingResponse}`}
+                      key={selectedLead.id}
                       content={messageToSend}
                       onChange={setMessageToSend}
                       placeholder={
@@ -1440,42 +1417,25 @@ export default function InboxPage() {
                       )}
                     </div>
 
-                    {/* Send Buttons */}
+                    {/* Send Button */}
                     <div className="flex gap-2">
-                      {selectedLead.needs_approval ? (
-                        <>
-                          <Button
-                            onClick={handleApproveAndSend}
-                            disabled={sending || !messageToSend.trim()}
-                            className="flex-1 h-8 text-sm"
-                          >
-                            <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
-                            {sending ? 'Sending...' : 'Approve & Send'}
-                          </Button>
-                          <Button
-                            onClick={handleSendMessage}
-                            disabled={sending || !messageToSend.trim()}
-                            variant="outline"
-                            className="h-8 text-sm"
-                          >
-                            <Send className="h-3.5 w-3.5 mr-1.5" />
-                            Send Different
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          onClick={handleSendMessage}
-                          disabled={sending || !messageToSend.trim()}
-                          className="flex-1 h-8 text-sm"
-                        >
+                      <Button
+                        onClick={selectedLead.needs_approval ? handleApproveAndSend : handleSendMessage}
+                        disabled={sending || !messageToSend.trim() || messageToSend.replace(/<[^>]*>/g, '').trim() === ''}
+                        className="flex-1 h-8 text-sm"
+                      >
+                        {sending ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : selectedLead.needs_approval ? (
+                          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                        ) : (
                           <Send className="h-3.5 w-3.5 mr-1.5" />
-                          {sending ? 'Sending...' : 'Send Message'}
-                        </Button>
-                      )}
+                        )}
+                        {sending ? 'Sending...' : selectedLead.needs_approval ? 'Approve & Send' : 'Send Message'}
+                      </Button>
                     </div>
                   </div>
                 </div>
-              )}
             </div>
             {/* Lead Details Sidebar (Collapsible) */}
             {!leadSidebarCollapsed && (

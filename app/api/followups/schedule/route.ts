@@ -59,6 +59,12 @@ export async function POST(request: NextRequest) {
           try {
             const nextStage = lead.followup_stage + 1;
 
+            // Guard: skip if agent has no followup sequence configured
+            if (!agent.followup_sequence?.steps?.length) {
+              console.log(`Agent ${agent.name} has no followup sequence configured, skipping`);
+              break;
+            }
+
             // Check if we've exceeded the follow-up sequence
             if (nextStage > agent.followup_sequence.steps.length) {
               console.log(
