@@ -25,6 +25,7 @@ class CalComBookingAdapter implements BookingClient {
 
   async getAvailableSlots(daysAhead = 7): Promise<AvailableSlot[]> {
     const now = new Date();
+    now.setMinutes(now.getMinutes() + 1); // Buffer: start 1 min in the future
     const end = new Date(now);
     end.setDate(end.getDate() + daysAhead);
 
@@ -83,6 +84,7 @@ class CalendlyBookingAdapter implements BookingClient {
 
   async getAvailableSlots(daysAhead = 7): Promise<AvailableSlot[]> {
     const now = new Date();
+    now.setMinutes(now.getMinutes() + 1); // Buffer: start 1 min in the future
     const end = new Date(now);
     end.setDate(end.getDate() + daysAhead);
 
