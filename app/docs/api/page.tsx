@@ -93,7 +93,7 @@ export default function ApiReferencePage() {
         <section id="base-url">
           <h2 className="text-xl font-bold text-gray-900 mb-4">Base URL</h2>
           <CodeBlock>
-            {`https://reply-agent-mu.vercel.app`}
+            {`https://rgl-reply-agent-mu.vercel.app`}
           </CodeBlock>
         </section>
 
@@ -120,7 +120,7 @@ export default function ApiReferencePage() {
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Example Request</h3>
           <CodeBlock title="curl">
 {`curl -H "Authorization: Bearer eb_live_xxx..." \\
-  "https://reply-agent-mu.vercel.app/api/v1/campaigns/metrics?since=2026-01-01"`}
+  "https://rgl-reply-agent-mu.vercel.app/api/v1/campaigns/metrics?since=2026-01-01"`}
           </CodeBlock>
 
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mt-6 mb-3">Response</h3>
@@ -203,7 +203,7 @@ export default function ApiReferencePage() {
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Example Request</h3>
           <CodeBlock title="curl">
 {`curl -H "Authorization: Bearer eb_live_xxx..." \\
-  "https://reply-agent-mu.vercel.app/api/v1/leads/responded?campaign_id=camp_abc123&page=1&per_page=20"`}
+  "https://rgl-reply-agent-mu.vercel.app/api/v1/leads/responded?campaign_id=camp_abc123&page=1&per_page=20"`}
           </CodeBlock>
 
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mt-6 mb-3">Response</h3>
@@ -312,7 +312,7 @@ export default function ApiReferencePage() {
                 <p className="mb-2">Fetch your real positives per campaign:</p>
                 <CodeBlock>
 {`curl -H "Authorization: Bearer eb_live_xxx..." \\
-  "https://reply-agent-mu.vercel.app/api/v1/campaigns/metrics"`}
+  "https://rgl-reply-agent-mu.vercel.app/api/v1/campaigns/metrics"`}
                 </CodeBlock>
               </div>
             </div>
