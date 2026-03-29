@@ -508,11 +508,19 @@ export async function POST(
 
     // Generate AI response for ALL interested replies (first reply or follow-up)
     if (categorization.is_truly_interested) {
-      // Get the latest lead message for the AI prompt
-      const latestLeadContent = conversationThread[conversationThread.length - 1]?.content || reply.text_body || '';
+      // Get the latest LEAD message (not a quoted agent message)
+      // In parsed threads, index 0 is the newest reply; last index is the oldest quoted message
+      const latestLeadMsg = conversationThread.find(msg => msg.role === 'lead' && !msg.is_quoted)
+        || conversationThread.find(msg => msg.role === 'lead')
+        || conversationThread[0];
+      const latestLeadContent = latestLeadMsg?.content || reply.text_body || '';
 
-      // Use full thread as conversation history for context
-      const historyForAI = fullThread.slice(0, -1); // All messages except the latest one
+      // Use full thread as conversation history, excluding the message we're responding to
+      const historyForAI = fullThread.filter(msg => msg !== latestLeadMsg);
+
+      // Extract original outbound email context (if available from quoted text)
+      const originalOutboundMessage = conversationThread.find(msg => msg.role === 'agent');
+      const originalEmailContext = originalOutboundMessage?.content;
 
       const generatedResponse = await generateResponse({
         leadEmail: reply.from_email_address,
@@ -520,6 +528,7 @@ export async function POST(
         leadMessage: latestLeadContent,
         agent,
         conversationHistory: historyForAI,
+        originalEmailContext,
       });
 
       // Handle booking action if AI requested one
@@ -670,50 +679,58 @@ export async function POST(
       if (needsApproval) {
         console.log(`[Webhook] Lead ${leadRecord.id} marked for approval`);
       } else {
-        // Auto-send response
-        try {
-          const platformClient = createClientForAgent(agent);
+        // Auto-send response — split into phases so failures are recorded, not swallowed
+        const platformClient = createClientForAgent(agent);
 
-          const sendResult = await platformClient.sendReply({
+        // Phase A: Send the reply
+        let sendResult;
+        try {
+          sendResult = await platformClient.sendReply({
             replyId: reply.id,
             message: generatedResponse.content,
             campaign_id: reply.campaign_id,
-            // Pass platform-specific fields for Smartlead
             email_stats_id: reply.email_stats_id,
             reply_message_id: reply.reply_message_id,
             reply_email_time: reply.reply_email_time,
             reply_email_body: reply.reply_email_body,
-            // Pass platform-specific fields for Instantly
             eaccount: reply.eaccount,
             reply_to_uuid: reply.reply_to_uuid,
           });
+        } catch (sendError: any) {
+          console.error('[Webhook] Failed to send auto-reply:', sendError);
+          // Record the failure so it surfaces in the inbox
+          await updateInterestedLead(leadRecord.id, {
+            needs_approval: true,
+            approval_reason: `Auto-send failed: ${sendError.message || 'Unknown error'}. Please review and send manually.`,
+          }).catch(dbErr => console.error('[Webhook] Failed to record send error:', dbErr));
+        }
 
+        // Phase B & C: Only if send succeeded
+        if (sendResult) {
           const now = new Date().toISOString();
 
-          // Refresh thread from the platform API to get the complete conversation
-          const refreshedThread = await refreshConversationThread({
-            lead: leadRecord,
-            agent,
-            sentMessage: {
-              content: generatedResponse.content,
-              timestamp: now,
-              message_id: sendResult.message_id,
-            },
-          });
-
-          // If a booking was completed, mark as completed and skip followup scheduling
-          if (bookingCompletedDirectly) {
-            await updateInterestedLead(leadRecord.id, {
-              conversation_thread: refreshedThread,
-              last_response_sent: generatedResponse.content,
-              last_response_sent_at: now,
-              needs_approval: false,
-              conversation_status: 'completed',
-              next_followup_due_at: null,
+          // Phase B: Refresh thread (fallback to local append if API refresh fails)
+          let refreshedThread;
+          try {
+            refreshedThread = await refreshConversationThread({
+              lead: leadRecord,
+              agent,
+              sentMessage: {
+                content: generatedResponse.content,
+                timestamp: now,
+                message_id: sendResult.message_id,
+              },
             });
-            console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, booking completed — followups stopped`);
-          } else {
-            // Schedule the first followup based on agent's followup sequence
+          } catch (refreshError) {
+            console.warn('[Webhook] Thread refresh failed, using local thread:', refreshError);
+            refreshedThread = [
+              ...leadRecord.conversation_thread,
+              { role: 'agent' as const, content: generatedResponse.content, timestamp: now, emailbison_message_id: sendResult.message_id },
+            ];
+          }
+
+          // Phase C: Update DB with send result
+          try {
             const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
             const nextFollowupDate = firstFollowupConfig
               ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
@@ -724,12 +741,19 @@ export async function POST(
               last_response_sent: generatedResponse.content,
               last_response_sent_at: now,
               needs_approval: false,
-              next_followup_due_at: nextFollowupDate,
+              ...(bookingCompletedDirectly
+                ? { conversation_status: 'completed' as const, next_followup_due_at: null }
+                : { next_followup_due_at: nextFollowupDate }),
             });
-            console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, next followup: ${nextFollowupDate || 'none'}`);
+            console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}${bookingCompletedDirectly ? ', booking completed' : ''}`);
+          } catch (dbError: any) {
+            console.error('[Webhook] CRITICAL: Reply sent but DB update failed:', dbError);
+            // Minimal fallback so we don't lose track of the sent reply
+            await updateInterestedLead(leadRecord.id, {
+              last_response_sent: generatedResponse.content,
+              last_response_sent_at: now,
+            }).catch(() => {});
           }
-        } catch (sendError) {
-          console.error('[Webhook] Error sending auto-reply:', sendError);
         }
       }
 

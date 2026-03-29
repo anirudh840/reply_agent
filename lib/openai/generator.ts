@@ -75,8 +75,9 @@ export async function generateResponse(params: {
   leadMessage: string;
   agent: Agent;
   conversationHistory?: ConversationMessage[];
+  originalEmailContext?: string;
 }): Promise<GeneratedResponse> {
-  const { leadEmail, leadName, leadMessage, agent, conversationHistory = [] } = params;
+  const { leadEmail, leadName, leadMessage, agent, conversationHistory = [], originalEmailContext } = params;
 
   // Validate lead message is not empty
   if (!leadMessage || leadMessage.trim() === '') {
@@ -146,7 +147,7 @@ IMPORTANT: Your response MUST address the LATEST MESSAGE above. The conversation
 
 CONVERSATION HISTORY (for background context only):
 ${historyString}
-
+${originalEmailContext ? `\nORIGINAL OUTBOUND EMAIL (what was sent to the lead — use this to understand what they are responding to):\n${originalEmailContext}\n` : ''}
 RELEVANT KNOWLEDGE BASE CONTEXT:
 ${formattedContext}
 

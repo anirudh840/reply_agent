@@ -32,6 +32,12 @@ MARK AS "automated_reply" or "out_of_office":
 
 DO NOT mark short or vague replies as "not_interested". If someone took the time to reply with even "What?" or "Ok", they are engaging — treat them as interested.
 
+UNDERSTANDING CONTEXT FROM QUOTED TEXT:
+- The reply body may contain quoted text from the original outbound email (preceded by "On ... wrote:" or "> " markers).
+- Use the quoted original email to understand WHAT was asked of the lead.
+- If the original email asked the lead to reply with a specific keyword (e.g., "Reply 'PC' if interested", "Say 'POC' for details"), and the lead replied with exactly that keyword, this is a STRONG positive signal — mark as interested with confidence 9-10.
+- Short replies like "PC", "POC", "YES", "Sure", "PPC", "NoRetainer" that match a call-to-action keyword in the quoted original email should ALWAYS be categorized as interested.
+
 Provide your analysis in JSON format.`;
 
 /**
@@ -48,10 +54,12 @@ export async function categorizeReply(params: {
 
 SUBJECT: ${reply.reply_subject || 'No subject'}
 
-BODY:
+FULL EMAIL BODY (includes the lead's reply and any quoted original outreach email for context):
 ${reply.reply_body}
 
-ORIGINAL STATUS: ${reply.original_status}
+PLATFORM STATUS: ${reply.original_status}
+
+IMPORTANT: The body above may contain quoted text from the original outreach email (after "On ... wrote:" or "> " markers). Use this quoted text to understand what call-to-action was presented to the lead. If the lead replied with a keyword that matches the CTA in the original email, this is a strong interest signal.
 
 Determine if this is a genuinely interested lead or a false positive.
 
