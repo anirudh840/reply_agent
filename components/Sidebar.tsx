@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, Inbox, Users, Settings } from 'lucide-react';
+import { LayoutDashboard, Inbox, Users, Key } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Master Inbox', href: '/inbox', icon: Inbox },
   { name: 'Agents', href: '/agents', icon: Users },
+  { name: 'API Keys', href: '/dashboard/api-keys', icon: Key },
 ];
 
 export function Sidebar() {

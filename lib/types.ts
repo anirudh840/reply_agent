@@ -144,7 +144,7 @@ export interface InterestedLead {
   approved_at?: string;
   followup_stage: number;
   followup_sent?: boolean;
-  next_followup_due_at?: string;
+  next_followup_due_at?: string | null;
   last_lead_reply_at?: string;
   conversation_status: ConversationStatus;
   // Category fields from initial reply
@@ -342,6 +342,20 @@ export interface AgentWizardStep5 {
     generated_response: string;
     user_edited_response?: string;
   }>;
+}
+
+// External API Key Types
+export interface ExternalApiKey {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  name: string;
+  key_hash: string;
+  key_prefix: string;
+  agent_ids: string[];
+  scopes: string[];
+  last_used_at?: string;
+  revoked_at?: string;
 }
 
 // Error Types

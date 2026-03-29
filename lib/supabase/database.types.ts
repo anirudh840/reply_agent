@@ -120,6 +120,69 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['feedback_logs']['Insert']>;
       };
     };
+      meetings_booked: {
+        Row: {
+          id: string;
+          created_at: string;
+          agent_id: string;
+          lead_id: string | null;
+          lead_email: string;
+          lead_name: string | null;
+          meeting_url: string | null;
+          booking_platform: string | null;
+          booked_at: string;
+        };
+        Insert: {
+          agent_id: string;
+          lead_id?: string | null;
+          lead_email: string;
+          lead_name?: string | null;
+          meeting_url?: string | null;
+          booking_platform?: string | null;
+          booked_at: string;
+        };
+        Update: {
+          agent_id?: string;
+          lead_id?: string | null;
+          lead_email?: string;
+          lead_name?: string | null;
+          meeting_url?: string | null;
+          booking_platform?: string | null;
+          booked_at?: string;
+        };
+      };
+      external_api_keys: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          name: string;
+          key_hash: string;
+          key_prefix: string;
+          agent_ids: string[];
+          scopes: string[];
+          last_used_at: string | null;
+          revoked_at: string | null;
+        };
+        Insert: {
+          name: string;
+          key_hash: string;
+          key_prefix: string;
+          agent_ids?: string[];
+          scopes?: string[];
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+        };
+        Update: {
+          name?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          agent_ids?: string[];
+          scopes?: string[];
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+        };
+      };
     Functions: {
       search_knowledge_base: {
         Args: {
