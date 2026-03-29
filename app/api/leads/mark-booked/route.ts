@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getInterestedLead, getAgent, createMeetingBooked } from '@/lib/supabase/queries';
+import { getInterestedLead, getAgent, createMeetingBooked, updateInterestedLead } from '@/lib/supabase/queries';
 import { sendMeetingBookedNotification } from '@/lib/integrations/slack';
 
 /**
@@ -37,6 +37,26 @@ export async function POST(request: NextRequest) {
       booking_platform: agent.booking_platform || 'manual',
       booked_at: new Date().toISOString(),
     });
+
+    // Stop followups and mark lead as completed
+    try {
+      const updatedThread = [
+        ...lead.conversation_thread,
+        {
+          role: 'agent' as const,
+          content: `[Meeting Booked] Manually marked as booked`,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+
+      await updateInterestedLead(lead.id, {
+        conversation_thread: updatedThread,
+        conversation_status: 'completed',
+        next_followup_due_at: null,
+      });
+    } catch (updateError) {
+      console.warn('[MarkBooked] Failed to update lead status:', updateError);
+    }
 
     // Send Slack notification
     if (agent.slack_webhook_url) {

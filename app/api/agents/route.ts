@@ -4,7 +4,9 @@ import { generateKnowledgeBaseEmbeddings } from '@/lib/openai/embeddings';
 import { createPlatformClient, platformDisplayName } from '@/lib/platforms';
 import type { PlatformType } from '@/lib/platforms/types';
 import { createOpenAIClient } from '@/lib/openai/client';
-import { generateWebhookId, getWebhookUrl } from '@/lib/webhooks';
+import { generateWebhookId, getWebhookUrl, getBookingWebhookUrl } from '@/lib/webhooks';
+import { CalComClient } from '@/lib/integrations/calcom';
+import { CalendlyClient } from '@/lib/integrations/calendly';
 import type { Agent } from '@/lib/types';
 
 /**
@@ -159,6 +161,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Auto-register booking webhook if booking platform is configured
+    let bookingWebhookRegistered = false;
+    if (agent.booking_platform && agent.booking_api_key && agent.webhook_id) {
+      try {
+        const callbackUrl = getBookingWebhookUrl(agent.webhook_id);
+
+        if (agent.booking_platform === 'calendly') {
+          const client = new CalendlyClient(agent.booking_api_key);
+          await client.createWebhookSubscription(callbackUrl);
+          bookingWebhookRegistered = true;
+        } else if (agent.booking_platform === 'cal_com') {
+          const client = new CalComClient(agent.booking_api_key);
+          await client.createWebhook(callbackUrl);
+          bookingWebhookRegistered = true;
+        }
+
+        console.log(`[Agent Create] Auto-registered ${agent.booking_platform} booking webhook`);
+      } catch (bookingWebhookError) {
+        console.warn('[Agent Create] Failed to auto-register booking webhook:', bookingWebhookError);
+        // Non-fatal: agent is still created, user can register manually
+      }
+    }
+
     // Generate webhook URL for the response
     const webhookUrl = getWebhookUrl(agent.webhook_id!);
 
@@ -167,6 +192,7 @@ export async function POST(request: NextRequest) {
         success: true,
         data: agent,
         webhook_url: webhookUrl,
+        booking_webhook_registered: bookingWebhookRegistered,
         message: `Agent created successfully. Configure the webhook URL in your ${displayName} workspace.`,
       },
       { status: 201 }

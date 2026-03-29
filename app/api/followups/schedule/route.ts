@@ -57,6 +57,17 @@ export async function POST(request: NextRequest) {
         // Process each lead
         for (const lead of dueLeads) {
           try {
+            // Idempotency guard: skip if a response was sent within the last 5 minutes
+            // (prevents double-sends if both Vercel cron and n8n fire simultaneously)
+            if (lead.last_response_sent_at) {
+              const lastSentAt = new Date(lead.last_response_sent_at).getTime();
+              const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+              if (lastSentAt > fiveMinutesAgo) {
+                console.log(`Skipping ${lead.lead_email}: response sent ${Math.round((Date.now() - lastSentAt) / 1000)}s ago`);
+                continue;
+              }
+            }
+
             const nextStage = lead.followup_stage + 1;
 
             // Guard: skip if agent has no followup sequence configured

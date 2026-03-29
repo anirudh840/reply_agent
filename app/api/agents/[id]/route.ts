@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgent, updateAgent, deleteAgent } from '@/lib/supabase/queries';
 import { generateKnowledgeBaseEmbeddings } from '@/lib/openai/embeddings';
+import { getBookingWebhookUrl } from '@/lib/webhooks';
+import { CalComClient } from '@/lib/integrations/calcom';
+import { CalendlyClient } from '@/lib/integrations/calendly';
 
 /**
  * GET /api/agents/[id]
@@ -52,9 +55,33 @@ export async function PATCH(
       });
     }
 
+    // Auto-register booking webhook if booking config was updated
+    let bookingWebhookRegistered = false;
+    const bookingConfigChanged = body.booking_platform || body.booking_api_key || body.booking_event_id;
+    if (bookingConfigChanged && agent.booking_platform && agent.booking_api_key && agent.webhook_id) {
+      try {
+        const callbackUrl = getBookingWebhookUrl(agent.webhook_id);
+
+        if (agent.booking_platform === 'calendly') {
+          const client = new CalendlyClient(agent.booking_api_key);
+          await client.createWebhookSubscription(callbackUrl);
+          bookingWebhookRegistered = true;
+        } else if (agent.booking_platform === 'cal_com') {
+          const client = new CalComClient(agent.booking_api_key);
+          await client.createWebhook(callbackUrl);
+          bookingWebhookRegistered = true;
+        }
+
+        console.log(`[Agent Update] Auto-registered ${agent.booking_platform} booking webhook`);
+      } catch (bookingWebhookError) {
+        console.warn('[Agent Update] Failed to auto-register booking webhook:', bookingWebhookError);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: agent,
+      booking_webhook_registered: bookingWebhookRegistered,
       message: 'Agent updated successfully',
     });
   } catch (error: any) {

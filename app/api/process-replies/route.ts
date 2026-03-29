@@ -12,6 +12,17 @@ import { createReply, createInterestedLead, getReplyByEmailBisonId, updateIntere
  */
 export async function POST(request: NextRequest) {
   try {
+    // Verify cron secret (optional security)
+    const authHeader = request.headers.get('authorization');
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const startTime = Date.now();
     const results = {
       processed: 0,

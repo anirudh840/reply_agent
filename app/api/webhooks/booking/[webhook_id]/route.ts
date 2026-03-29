@@ -155,6 +155,7 @@ export async function POST(
         await updateInterestedLead(matchedLead.id, {
           conversation_thread: updatedThread,
           conversation_status: 'completed',
+          next_followup_due_at: null,
         });
       } catch (updateError) {
         console.warn('[BookingWebhook] Failed to update lead thread:', updateError);

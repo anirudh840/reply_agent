@@ -498,6 +498,7 @@ export async function POST(
       // Handle booking action if AI requested one
       let forceManualApprovalForBooking = false;
       let bookingApprovalReason = '';
+      let bookingCompletedDirectly = false;
 
       if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'book') {
         const canBookDirectly = agent.booking_platform === 'cal_com';
@@ -514,6 +515,7 @@ export async function POST(
 
             if (bookingResult.success && bookingResult.meetingUrl) {
               console.log(`[Webhook] Booking created directly via Cal.com: ${bookingResult.meetingUrl}`);
+              bookingCompletedDirectly = true;
 
               const leadRecord_existing = existingLead || null;
               try {
@@ -605,14 +607,20 @@ export async function POST(
 
       if (existingLead) {
         // Update existing lead with new AI response
-        await updateInterestedLead(existingLead.id, {
+        const existingLeadUpdate: Record<string, any> = {
           last_response_generated: generatedResponse.content,
           response_confidence_score: generatedResponse.confidence_score,
           needs_approval: needsApproval,
           approval_reason: approvalReason,
-        });
+        };
+        // If a booking was completed directly, stop followups immediately
+        if (bookingCompletedDirectly) {
+          existingLeadUpdate.conversation_status = 'completed';
+          existingLeadUpdate.next_followup_due_at = null;
+        }
+        await updateInterestedLead(existingLead.id, existingLeadUpdate);
         leadRecord = { ...existingLead, conversation_thread: fullThread };
-        console.log(`[Webhook] Generated follow-up AI response for existing lead ${existingLead.id}`);
+        console.log(`[Webhook] Generated follow-up AI response for existing lead ${existingLead.id}${bookingCompletedDirectly ? ' (booking completed, followups stopped)' : ''}`);
       } else {
         // Create new interested lead record
         leadRecord = await createInterestedLead({
@@ -627,7 +635,7 @@ export async function POST(
           last_lead_reply_at: reply.date_received || new Date().toISOString(),
           needs_approval: needsApproval,
           approval_reason: approvalReason,
-          conversation_status: 'active',
+          conversation_status: bookingCompletedDirectly ? 'completed' : 'active',
           followup_stage: 0,
         });
       }
@@ -666,21 +674,33 @@ export async function POST(
             },
           });
 
-          // Schedule the first followup based on agent's followup sequence
-          const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
-          const nextFollowupDate = firstFollowupConfig
-            ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
-            : undefined;
+          // If a booking was completed, mark as completed and skip followup scheduling
+          if (bookingCompletedDirectly) {
+            await updateInterestedLead(leadRecord.id, {
+              conversation_thread: refreshedThread,
+              last_response_sent: generatedResponse.content,
+              last_response_sent_at: now,
+              needs_approval: false,
+              conversation_status: 'completed',
+              next_followup_due_at: null,
+            });
+            console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, booking completed — followups stopped`);
+          } else {
+            // Schedule the first followup based on agent's followup sequence
+            const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
+            const nextFollowupDate = firstFollowupConfig
+              ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
+              : undefined;
 
-          await updateInterestedLead(leadRecord.id, {
-            conversation_thread: refreshedThread,
-            last_response_sent: generatedResponse.content,
-            last_response_sent_at: now,
-            needs_approval: false,
-            next_followup_due_at: nextFollowupDate,
-          });
-
-          console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, next followup: ${nextFollowupDate || 'none'}`);
+            await updateInterestedLead(leadRecord.id, {
+              conversation_thread: refreshedThread,
+              last_response_sent: generatedResponse.content,
+              last_response_sent_at: now,
+              needs_approval: false,
+              next_followup_due_at: nextFollowupDate,
+            });
+            console.log(`[Webhook] Auto-sent response to ${reply.from_email_address}, next followup: ${nextFollowupDate || 'none'}`);
+          }
         } catch (sendError) {
           console.error('[Webhook] Error sending auto-reply:', sendError);
         }
