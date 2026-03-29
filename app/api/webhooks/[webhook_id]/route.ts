@@ -401,17 +401,44 @@ export async function POST(
         `[Webhook] Parsed ${parsedMessages.length} messages from email body`
       );
 
-      conversationThread = parsedMessages.map((msg, index) => ({
-        role: 'lead' as const,
-        content: msg.content,
-        timestamp:
-          index === 0
-            ? reply.date_received || new Date().toISOString()
-            : msg.date || new Date().toISOString(),
-        emailbison_message_id: index === 0 ? reply.id : undefined,
-        is_quoted: msg.isQuoted,
-        from: msg.from || (index === 0 ? reply.from_name : undefined),
-      }));
+      // Determine role for quoted messages by comparing their "from" against the lead's email/name
+      const leadEmailLower = (reply.from_email_address || '').toLowerCase();
+      const leadNameLower = (reply.from_name || '').toLowerCase();
+      // The parent_id from the webhook payload can serve as the message ID for the quoted outbound
+      const parentMessageId = reply.lead_data?.reply_raw?.parent_id?.toString();
+
+      conversationThread = parsedMessages.map((msg, index) => {
+        // Index 0 is always the lead's actual reply (the newest message)
+        // Quoted messages: check if "from" matches the lead or the agent
+        let role: 'lead' | 'agent' = 'lead';
+        if (index > 0 && msg.isQuoted && msg.from) {
+          const fromLower = msg.from.toLowerCase();
+          // If the quoted message's "from" does NOT match the lead, it's from the agent
+          const matchesLead =
+            fromLower.includes(leadEmailLower) ||
+            leadEmailLower.includes(fromLower) ||
+            (leadNameLower && fromLower.includes(leadNameLower)) ||
+            (leadNameLower && leadNameLower.includes(fromLower));
+          if (!matchesLead) {
+            role = 'agent';
+          }
+        }
+
+        return {
+          role,
+          content: msg.content,
+          timestamp:
+            index === 0
+              ? reply.date_received || new Date().toISOString()
+              : msg.date || new Date().toISOString(),
+          emailbison_message_id:
+            index === 0
+              ? reply.id
+              : (role === 'agent' && parentMessageId) ? parentMessageId : undefined,
+          is_quoted: msg.isQuoted,
+          from: msg.from || (index === 0 ? reply.from_name : undefined),
+        };
+      });
     }
 
     // If we still have nothing, create a single-message thread

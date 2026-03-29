@@ -77,8 +77,9 @@ export async function POST(request: NextRequest) {
     const emailbisonClient = createClientForAgent(agent);
 
     // Get the most recent platform reply ID
+    // Must find a lead message that has an emailbison_message_id (skip quoted messages without one)
     const lastLeadMessage = lead.conversation_thread
-      .filter((msg) => msg.role === 'lead')
+      .filter((msg) => msg.role === 'lead' && msg.emailbison_message_id)
       .slice(-1)[0];
 
     if (!lastLeadMessage?.emailbison_message_id) {
