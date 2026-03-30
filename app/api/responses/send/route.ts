@@ -6,6 +6,7 @@ import {
   createFeedbackLog,
 } from '@/lib/supabase/queries';
 import { createClientForAgent } from '@/lib/platforms';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 import type { ConversationMessage } from '@/lib/types';
 import { addDays } from 'date-fns';
 
@@ -53,6 +54,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Acquire send lock to prevent duplicate sends
+    const sendLock = await acquireSendLock({
+      agentId: agent.id,
+      leadId: lead.id,
+      leadEmail: lead.lead_email,
+      idempotencyKey: `reply-to:${lastLeadMessage.emailbison_message_id}`,
+      sendSource: 'legacy_approve',
+      messageContent: response_content,
+    });
+
+    if (!sendLock.acquired) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'A response to this lead message has already been sent',
+        },
+        { status: 409 }
+      );
+    }
+
     // Send reply via platform
     try {
       const sendResult = await emailbisonClient.sendReply({
@@ -61,8 +82,11 @@ export async function POST(request: NextRequest) {
       });
 
       if (!sendResult.success) {
+        if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, 'Platform returned failure');
         throw new Error('Failed to send email via platform');
       }
+
+      if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
 
       // Add agent message to conversation thread
       const agentMessage: ConversationMessage = {
@@ -128,6 +152,7 @@ export async function POST(request: NextRequest) {
       });
     } catch (emailError: any) {
       console.error('Error sending email:', emailError);
+      if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, emailError.message || 'Unknown error').catch(() => {});
       return NextResponse.json(
         {
           success: false,

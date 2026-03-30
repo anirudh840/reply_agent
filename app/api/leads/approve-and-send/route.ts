@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInterestedLead, updateInterestedLead, getAgent, createFeedbackLog } from '@/lib/supabase/queries';
 import { createClientForAgent } from '@/lib/platforms';
 import { refreshConversationThread } from '@/lib/platforms/thread-sync';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 import { addDays } from 'date-fns';
 
 /**
@@ -92,8 +93,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Acquire send lock to prevent duplicate sends
+    const sendLock = await acquireSendLock({
+      agentId: agent.id,
+      leadId: lead.id,
+      leadEmail: lead.lead_email,
+      idempotencyKey: `reply-to:${lastLeadMessage.emailbison_message_id}`,
+      sendSource: 'approve',
+      messageContent: message,
+    });
+
+    if (!sendLock.acquired) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'A response to this lead message has already been sent',
+        },
+        { status: 409 }
+      );
+    }
+
     // Send reply via platform
-    const sendResult = await emailbisonClient.sendReply({
+    let sendResult;
+    try {
+    sendResult = await emailbisonClient.sendReply({
       replyId: lastLeadMessage.emailbison_message_id,
       message,
       cc: cc || [],
@@ -102,6 +125,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!sendResult.success) {
+      if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, 'Platform returned failure');
       return NextResponse.json(
         {
           success: false,
@@ -109,6 +133,12 @@ export async function POST(request: NextRequest) {
         },
         { status: 502 }
       );
+    }
+
+    if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
+    } catch (sendErr: any) {
+      if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, sendErr.message || 'Unknown error');
+      throw sendErr;
     }
 
     const now = new Date().toISOString();

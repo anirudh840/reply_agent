@@ -4,6 +4,7 @@ import { createClientForAgent } from '@/lib/platforms';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
 import { createReply, createInterestedLead, getReplyByEmailBisonId, updateInterestedLead } from '@/lib/supabase/queries';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 
 /**
  * POST /api/process-replies
@@ -66,8 +67,8 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            // Check if we've already processed this reply
-            const existing = await getReplyByEmailBisonId(emailbisonReply.id);
+            // Check if we've already processed this reply (per-agent)
+            const existing = await getReplyByEmailBisonId(emailbisonReply.id, agent.id);
             if (existing) {
               continue; // Skip already processed replies
             }
@@ -152,12 +153,29 @@ export async function POST(request: NextRequest) {
                 // This will show up in the inbox for human review
                 console.log(`Lead ${interestedLead.id} marked for approval`);
               } else {
+                // Acquire send lock to prevent duplicate sends across webhook/cron paths
+                const sendLock = await acquireSendLock({
+                  agentId: agent.id,
+                  leadId: interestedLead.id,
+                  leadEmail: emailbisonReply.from_email,
+                  idempotencyKey: `reply-to:${emailbisonReply.id}`,
+                  sendSource: 'cron',
+                  messageContent: generatedResponse.content,
+                });
+
+                if (!sendLock.acquired) {
+                  console.log(`[Cron] Send lock not acquired for reply ${emailbisonReply.id}, skipping send`);
+                  continue;
+                }
+
                 // Auto-send response
                 try {
                   const sendResult = await emailbisonClient.sendReply({
                     replyId: emailbisonReply.id,
                     message: generatedResponse.content,
                   });
+
+                  if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
 
                   // Update lead record with sent status
                   const updatedThread = [
@@ -178,8 +196,9 @@ export async function POST(request: NextRequest) {
                   });
 
                   console.log(`Auto-sent response to ${emailbisonReply.from_email}`);
-                } catch (sendError) {
+                } catch (sendError: any) {
                   console.error('Error sending auto-reply:', sendError);
+                  if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, sendError.message || 'Unknown error');
                   // Will show in inbox as needs attention
                 }
               }

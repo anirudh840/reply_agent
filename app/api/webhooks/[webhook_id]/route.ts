@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createClientForAgent } from '@/lib/platforms';
 import { EmailBisonClient } from '@/lib/platforms/emailbison';
 import type { PlatformType, PlatformReply } from '@/lib/platforms/types';
@@ -14,6 +14,7 @@ import {
   getInterestedLeadByEmail,
   createMeetingBooked,
 } from '@/lib/supabase/queries';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 import { parseEmailThread } from '@/lib/utils/email-parser';
 import { refreshConversationThread } from '@/lib/platforms/thread-sync';
 import { sendSlackNotification, sendMeetingBookedNotification } from '@/lib/integrations/slack';
@@ -329,6 +330,17 @@ export async function POST(
     console.log(
       `[Webhook] Categorized reply as ${categorization.is_truly_interested ? 'interested' : 'not interested'} (confidence: ${categorization.confidence_score}/10)`
     );
+
+    // Reply record created — respond immediately to prevent platform retries.
+    // Heavy processing (thread building, AI response, send) continues in after().
+    const earlyResponse = NextResponse.json({
+      success: true,
+      message: 'Webhook received, processing',
+      data: { reply_id: replyRecord.id },
+    });
+
+    after(async () => {
+    try {
 
     // ===================================================================
     // BUILD CONVERSATION THREAD
@@ -682,8 +694,28 @@ export async function POST(
         // Auto-send response — split into phases so failures are recorded, not swallowed
         const platformClient = createClientForAgent(agent);
 
-        // Phase A: Send the reply
+        // Acquire send lock to prevent duplicate sends across webhook/cron/approval paths
+        const sendLock = await acquireSendLock({
+          agentId: agent.id,
+          leadId: leadRecord.id,
+          leadEmail: reply.from_email_address,
+          idempotencyKey: `reply-to:${reply.id}`,
+          sendSource: 'webhook',
+          messageContent: generatedResponse.content,
+        });
+
+        if (!sendLock.acquired) {
+          console.log(`[Webhook] Send lock not acquired for reply ${reply.id}, another process already sending`);
+          // Still update lead with generated response for visibility, but don't send
+          await updateInterestedLead(leadRecord.id, {
+            last_response_generated: generatedResponse.content,
+            response_confidence_score: generatedResponse.confidence_score,
+          }).catch(() => {});
+        }
+
+        // Phase A: Send the reply (only if lock acquired)
         let sendResult;
+        if (sendLock.acquired) {
         try {
           sendResult = await platformClient.sendReply({
             replyId: reply.id,
@@ -696,13 +728,16 @@ export async function POST(
             eaccount: reply.eaccount,
             reply_to_uuid: reply.reply_to_uuid,
           });
+          if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
         } catch (sendError: any) {
           console.error('[Webhook] Failed to send auto-reply:', sendError);
+          if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, sendError.message || 'Unknown error');
           // Record the failure so it surfaces in the inbox
           await updateInterestedLead(leadRecord.id, {
             needs_approval: true,
             approval_reason: `Auto-send failed: ${sendError.message || 'Unknown error'}. Please review and send manually.`,
           }).catch(dbErr => console.error('[Webhook] Failed to record send error:', dbErr));
+        }
         }
 
         // Phase B & C: Only if send succeeded
@@ -793,18 +828,7 @@ export async function POST(
         }
       }
 
-      return NextResponse.json({
-        success: true,
-        message: needsApproval
-          ? 'Reply processed and marked for approval'
-          : 'Reply processed and auto-responded',
-        data: {
-          reply_id: replyRecord.id,
-          lead_id: leadRecord.id,
-          auto_sent: !needsApproval,
-          is_followup: !!existingLead,
-        },
-      });
+      console.log(`[Webhook] ${needsApproval ? 'Marked for approval' : 'Auto-responded'}: lead ${leadRecord.id}`);
     } else {
       // Not interested - still create lead record for inbox visibility
       // but don't generate AI response
@@ -825,28 +849,17 @@ export async function POST(
         console.log(
           `[Webhook] Reply marked as not interested, created lead record ${interestedLead.id} for visibility`
         );
-
-        return NextResponse.json({
-          success: true,
-          message: 'Reply processed as not interested',
-          data: {
-            reply_id: replyRecord.id,
-            lead_id: interestedLead.id,
-          },
-        });
       } else {
         console.log(`[Webhook] Updated existing lead with not interested reply`);
-
-        return NextResponse.json({
-          success: true,
-          message: 'Reply processed as not interested',
-          data: {
-            reply_id: replyRecord.id,
-            lead_id: existingLead.id,
-          },
-        });
       }
     }
+
+    } catch (afterError: any) {
+      console.error('[Webhook] Error in after() processing:', afterError);
+    }
+    }); // end after()
+
+    return earlyResponse;
   } catch (error: any) {
     console.error('[Webhook] Error processing webhook:', error);
     return NextResponse.json(

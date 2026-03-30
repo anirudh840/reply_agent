@@ -7,6 +7,7 @@ import {
 } from '@/lib/supabase/queries';
 import { generateFollowup } from '@/lib/openai/generator';
 import { createClientForAgent } from '@/lib/platforms';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 import type { ConversationMessage } from '@/lib/types';
 import { addDays } from 'date-fns';
 
@@ -110,14 +111,37 @@ export async function POST(request: NextRequest) {
               throw new Error('No platform message ID found');
             }
 
+            // Acquire send lock to prevent duplicate followup sends
+            const sendLock = await acquireSendLock({
+              agentId: agent.id,
+              leadId: lead.id,
+              leadEmail: lead.lead_email,
+              idempotencyKey: `followup:${lead.id}:${nextStage}`,
+              sendSource: 'followup',
+              messageContent: followup.content,
+            });
+
+            if (!sendLock.acquired) {
+              console.log(`[Followup] Send lock not acquired for lead ${lead.lead_email} stage ${nextStage}, skipping`);
+              continue;
+            }
+
             // Send follow-up
-            const sendResult = await emailbisonClient.sendReply({
+            let sendResult;
+            try {
+            sendResult = await emailbisonClient.sendReply({
               replyId: lastLeadMessage.emailbison_message_id,
               message: followup.content,
             });
 
             if (!sendResult.success) {
               throw new Error('Failed to send follow-up email');
+            }
+
+            if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
+            } catch (sendErr: any) {
+              if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, sendErr.message || 'Unknown error');
+              throw sendErr;
             }
 
             // Add to conversation thread
