@@ -3,8 +3,9 @@ import { getAllAgents } from '@/lib/supabase/queries';
 import { createClientForAgent } from '@/lib/platforms';
 import { categorizeReply } from '@/lib/openai/categorizer';
 import { generateResponse } from '@/lib/openai/generator';
-import { createReply, createInterestedLead, getReplyByEmailBisonId, updateInterestedLead } from '@/lib/supabase/queries';
+import { createReply, createInterestedLead, getReplyByEmailBisonId, updateInterestedLead, createMeetingBooked } from '@/lib/supabase/queries';
 import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
+import { executeBookingAction } from '@/lib/integrations/booking';
 
 /**
  * POST /api/process-replies
@@ -119,6 +120,60 @@ export async function POST(request: NextRequest) {
                 agent,
                 conversationHistory: [],
               });
+
+              // Handle booking action if AI requested one
+              let bookingCompletedDirectly = false;
+
+              if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'book') {
+                const bookingAction = {
+                  ...generatedResponse.booking_action,
+                  attendee_name: generatedResponse.booking_action.attendee_name || emailbisonReply.from_name || 'Lead',
+                  attendee_email: generatedResponse.booking_action.attendee_email || emailbisonReply.from_email,
+                };
+
+                if (agent.booking_platform === 'cal_com') {
+                  // Cal.com: direct booking
+                  try {
+                    const bookingResult = await executeBookingAction(agent, bookingAction);
+                    if (bookingResult.success && bookingResult.meetingUrl) {
+                      bookingCompletedDirectly = true;
+                      console.log(`[Cron] Booking created via Cal.com: ${bookingResult.meetingUrl}`);
+                      try {
+                        await createMeetingBooked({
+                          agent_id: agent.id,
+                          lead_email: emailbisonReply.from_email,
+                          lead_name: emailbisonReply.from_name,
+                          meeting_url: bookingResult.meetingUrl,
+                          booking_platform: agent.booking_platform,
+                          booked_at: new Date().toISOString(),
+                        });
+                      } catch (e) { console.warn('[Cron] Failed to record meeting:', e); }
+                    }
+                  } catch (e) { console.warn('[Cron] Cal.com booking error:', e); }
+                } else {
+                  // Calendly: create pre-filled scheduling link and append to response
+                  try {
+                    const bookingResult = await executeBookingAction(agent, bookingAction);
+                    if (bookingResult.success && bookingResult.meetingUrl) {
+                      if (!generatedResponse.content.includes(bookingResult.meetingUrl)) {
+                        generatedResponse.content += `\n\nHere's the link to confirm our call: ${bookingResult.meetingUrl}`;
+                      }
+                      console.log(`[Cron] Calendly scheduling link created for ${emailbisonReply.from_email}`);
+                    } else if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+                      generatedResponse.content += `\n\nHere's the link to book a time: ${agent.booking_link}`;
+                    }
+                  } catch (e) {
+                    console.warn('[Cron] Calendly scheduling link error:', e);
+                    if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+                      generatedResponse.content += `\n\nHere's the link to book a time: ${agent.booking_link}`;
+                    }
+                  }
+                }
+              } else if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'suggest_link') {
+                if (agent.booking_link && !generatedResponse.content.includes(agent.booking_link)) {
+                  generatedResponse.content += `\n\nHere's the link to book a time: ${agent.booking_link}`;
+                }
+              }
 
               // Determine if approval is needed
               const needsApproval =

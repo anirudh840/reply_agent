@@ -610,13 +610,37 @@ export async function POST(
           }
         } else {
           // Calendly (or other platforms) can't book directly via API.
-          // Force manual approval so the user can send the invite themselves.
-          forceManualApprovalForBooking = true;
-          const requestedDate = generatedResponse.booking_action.date || 'requested date';
-          const requestedTime = generatedResponse.booking_action.start_time || 'requested time';
-          const requestedTz = generatedResponse.booking_action.timezone || 'their timezone';
-          bookingApprovalReason = `Lead requested a direct calendar invite. Calendly does not support programmatic booking — you need to manually send a calendar invite to ${reply.from_email_address} for ${requestedDate} at ${requestedTime} (${requestedTz}).`;
-          console.log(`[Webhook] Calendly can't book directly, forcing manual approval for ${reply.from_email_address}`);
+          // Create a pre-filled scheduling link and append it to the response.
+          try {
+            const bookingAction = {
+              ...generatedResponse.booking_action,
+              attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
+              attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
+            };
+            const bookingResult = await executeBookingAction(agent, bookingAction);
+
+            if (bookingResult.success && bookingResult.meetingUrl) {
+              // Append the pre-filled scheduling link to the AI response
+              if (!generatedResponse.content.includes(bookingResult.meetingUrl)) {
+                generatedResponse.content += `\n\nHere's the link to confirm our call: ${bookingResult.meetingUrl}`;
+              }
+              console.log(`[Webhook] Calendly scheduling link created for ${reply.from_email_address}: ${bookingResult.meetingUrl}`);
+            } else {
+              // Scheduling link failed — fall back to static booking link
+              const fallbackLink = agent.booking_link;
+              if (fallbackLink && !generatedResponse.content.includes(fallbackLink)) {
+                generatedResponse.content += `\n\nHere's the link to book a time: ${fallbackLink}`;
+              }
+              console.warn(`[Webhook] Calendly scheduling link failed, using fallback:`, bookingResult.error);
+            }
+          } catch (bookingError: any) {
+            console.warn('[Webhook] Calendly scheduling link error:', bookingError);
+            // Fall back to static booking link
+            const fallbackLink = agent.booking_link;
+            if (fallbackLink && !generatedResponse.content.includes(fallbackLink)) {
+              generatedResponse.content += `\n\nHere's the link to book a time: ${fallbackLink}`;
+            }
+          }
         }
       } else if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'suggest_link') {
         // AI wants to suggest a booking link — append it to the response

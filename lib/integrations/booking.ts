@@ -73,6 +73,31 @@ class CalComBookingAdapter implements BookingClient {
   }
 }
 
+/**
+ * Build a Calendly URL with pre-filled name, email, and target month/date.
+ * Calendly scheduling pages accept these query params:
+ *   name  – pre-fills the invitee name field
+ *   email – pre-fills the invitee email field
+ *   month – YYYY-MM to navigate to the correct month
+ *   date  – YYYY-MM-DD to highlight the target date
+ */
+export function buildCalendlyPrefilledUrl(
+  baseUrl: string,
+  name: string,
+  email: string,
+  date?: string,
+): string {
+  const url = new URL(baseUrl);
+  if (name) url.searchParams.set('name', name);
+  if (email) url.searchParams.set('email', email);
+  if (date) {
+    // month param navigates to the right month view
+    url.searchParams.set('month', date.slice(0, 7)); // YYYY-MM
+    url.searchParams.set('date', date); // YYYY-MM-DD
+  }
+  return url.toString();
+}
+
 class CalendlyBookingAdapter implements BookingClient {
   private client: CalendlyClient;
   private agent: Agent;
@@ -104,24 +129,38 @@ class CalendlyBookingAdapter implements BookingClient {
   }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
     try {
       // Calendly doesn't support direct programmatic booking via API.
-      // Create a single-use scheduling link instead.
+      // Create a single-use scheduling link pre-filled with the lead's details.
       const result = await this.client.createSchedulingLink({
         eventTypeUri: this.agent.booking_event_id!,
         maxEventCount: 1,
       });
 
+      // Build pre-filled URL with lead's name, email, and target month
+      const prefilledUrl = buildCalendlyPrefilledUrl(
+        result.booking_url,
+        params.attendeeName,
+        params.attendeeEmail,
+        params.date,
+      );
+
       return {
         success: true,
-        meetingUrl: result.booking_url,
+        meetingUrl: prefilledUrl,
       };
     } catch (error: any) {
       // If scheduling link creation fails, fall back to the static booking link
       const fallbackLink = this.agent.booking_link;
       if (fallbackLink) {
         console.warn('[Calendly] Scheduling link creation failed, using fallback booking link:', error.message);
+        const prefilledFallback = buildCalendlyPrefilledUrl(
+          fallbackLink,
+          params.attendeeName,
+          params.attendeeEmail,
+          params.date,
+        );
         return {
           success: true,
-          meetingUrl: fallbackLink,
+          meetingUrl: prefilledFallback,
         };
       }
       return {
