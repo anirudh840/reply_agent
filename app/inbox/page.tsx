@@ -88,6 +88,9 @@ export default function InboxPage() {
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [middlePanelCollapsed, setMiddlePanelCollapsed] = useState(false);
 
+  // Approval banner reasoning collapsed state
+  const [reasoningCollapsed, setReasoningCollapsed] = useState(false);
+
   // Ref for auto-scrolling to AI draft card in thread
   const aiDraftRef = useRef<HTMLDivElement>(null);
 
@@ -912,18 +915,38 @@ export default function InboxPage() {
             <div className={`flex flex-col transition-all ${leadSidebarCollapsed ? 'flex-1' : 'w-2/3'}`}>
               {/* Approval Banner */}
               {selectedLead.needs_approval && (
-                <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+                <div className="p-3 bg-yellow-50 border-b border-yellow-200">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                      <div>
-                        <h3 className="text-sm font-semibold text-yellow-900 mb-1">
-                          AI Response Pending Approval
-                        </h3>
-                        <p className="text-xs text-yellow-700">
-                          AI confidence: {selectedLead.response_confidence_score}/10 - Review the AI draft response in the thread below, then approve, edit, or send a different reply.
-                        </p>
-                        {selectedLead.approval_reason && (
+                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-yellow-900">
+                            AI Response Pending Approval
+                          </h3>
+                          <span className="text-xs text-yellow-700">
+                            (Confidence: {selectedLead.response_confidence_score}/10)
+                          </span>
+                          {selectedLead.approval_reason && (
+                            <button
+                              onClick={() => setReasoningCollapsed(!reasoningCollapsed)}
+                              className="ml-1 text-xs text-yellow-700 hover:text-yellow-900 underline underline-offset-2 flex items-center gap-0.5"
+                            >
+                              {reasoningCollapsed ? (
+                                <>
+                                  <ChevronRight className="h-3 w-3" />
+                                  Show reason
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="h-3 w-3" />
+                                  Hide reason
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        {!reasoningCollapsed && selectedLead.approval_reason && (
                           <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-800 whitespace-pre-wrap">
                             <span className="font-semibold">Reason: </span>
                             {selectedLead.approval_reason}
@@ -931,7 +954,7 @@ export default function InboxPage() {
                         )}
                       </div>
                     </div>
-                    <Badge variant="destructive" className="text-xs">
+                    <Badge variant="destructive" className="text-xs flex-shrink-0">
                       Action Required
                     </Badge>
                   </div>
