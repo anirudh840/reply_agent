@@ -127,15 +127,37 @@ class CalendlyBookingAdapter implements BookingClient {
     attendeeName: string;
     attendeeEmail: string;
   }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
+    // Build ISO datetime from date + time
+    const startISO = `${params.date}T${params.startTime}:00`;
+
+    // Step 1: Try direct booking via Calendly Scheduling API (POST /invitees)
+    // This creates the event and sends calendar invites automatically.
+    // Requires a paid Calendly plan.
     try {
-      // Calendly doesn't support direct programmatic booking via API.
-      // Create a single-use scheduling link pre-filled with the lead's details.
+      const result = await this.client.createBooking({
+        eventTypeUri: this.agent.booking_event_id!,
+        startTime: startISO,
+        inviteeName: params.attendeeName,
+        inviteeEmail: params.attendeeEmail,
+        inviteeTimezone: params.timezone,
+      });
+
+      console.log(`[Calendly] Direct booking created: ${result.uri}`);
+      return {
+        success: true,
+        meetingUrl: result.schedulingUrl || result.uri,
+      };
+    } catch (directError: any) {
+      console.warn('[Calendly] Direct booking failed (may need paid plan), falling back to scheduling link:', directError.message);
+    }
+
+    // Step 2: Fallback — create a pre-filled scheduling link
+    try {
       const result = await this.client.createSchedulingLink({
         eventTypeUri: this.agent.booking_event_id!,
         maxEventCount: 1,
       });
 
-      // Build pre-filled URL with lead's name, email, and target month
       const prefilledUrl = buildCalendlyPrefilledUrl(
         result.booking_url,
         params.attendeeName,
@@ -147,11 +169,11 @@ class CalendlyBookingAdapter implements BookingClient {
         success: true,
         meetingUrl: prefilledUrl,
       };
-    } catch (error: any) {
-      // If scheduling link creation fails, fall back to the static booking link
+    } catch (linkError: any) {
+      // Step 3: Final fallback — static booking link
       const fallbackLink = this.agent.booking_link;
       if (fallbackLink) {
-        console.warn('[Calendly] Scheduling link creation failed, using fallback booking link:', error.message);
+        console.warn('[Calendly] Scheduling link also failed, using static booking link:', linkError.message);
         const prefilledFallback = buildCalendlyPrefilledUrl(
           fallbackLink,
           params.attendeeName,
@@ -165,7 +187,7 @@ class CalendlyBookingAdapter implements BookingClient {
       }
       return {
         success: false,
-        error: error.message || 'Failed to create Calendly scheduling link',
+        error: linkError.message || 'Failed to create Calendly booking',
       };
     }
   }

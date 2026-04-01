@@ -104,9 +104,46 @@ export class CalendlyClient {
   }
 
   /**
+   * Create a booking directly via the Calendly Scheduling API (POST /invitees).
+   * This creates a scheduled event and sends calendar invites automatically.
+   * Requires a paid Calendly plan.
+   */
+  async createBooking(params: {
+    eventTypeUri: string;
+    startTime: string; // UTC ISO 8601, e.g. "2026-04-02T14:00:00Z"
+    inviteeName: string;
+    inviteeEmail: string;
+    inviteeTimezone: string; // IANA, e.g. "America/New_York"
+  }): Promise<CalendlyBookingResult> {
+    // Ensure start time ends with Z for UTC
+    let startUtc = params.startTime;
+    if (!startUtc.endsWith('Z') && !startUtc.includes('+')) {
+      startUtc = `${startUtc}Z`;
+    }
+
+    const response = await this.request<{ resource: any }>('/invitees', {
+      method: 'POST',
+      body: JSON.stringify({
+        event_type_uri: params.eventTypeUri,
+        start_time: startUtc,
+        name: params.inviteeName,
+        email: params.inviteeEmail,
+        timezone: params.inviteeTimezone,
+      }),
+    });
+
+    const invitee = response.resource;
+    return {
+      uri: invitee.uri,
+      event_uri: invitee.event,
+      status: invitee.status || 'active',
+      schedulingUrl: invitee.reschedule_url || invitee.cancel_url,
+    };
+  }
+
+  /**
    * Create a single-use scheduling link via Calendly API.
-   * Note: Calendly does NOT support direct programmatic booking creation
-   * via REST API. Instead, we create a scheduling link that the lead can use.
+   * Fallback for accounts that don't support the Scheduling API (free plans).
    */
   async createSchedulingLink(params: {
     eventTypeUri: string;

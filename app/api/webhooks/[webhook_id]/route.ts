@@ -549,98 +549,63 @@ export async function POST(
       let bookingCompletedDirectly = false;
 
       if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'book') {
-        const canBookDirectly = agent.booking_platform === 'cal_com';
+        // Both Cal.com and Calendly now support direct booking via API.
+        // executeBookingAction() handles platform-specific logic internally
+        // (Calendly falls back to scheduling link if direct booking fails).
+        try {
+          const bookingAction = {
+            ...generatedResponse.booking_action,
+            attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
+            attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
+          };
+          const bookingResult = await executeBookingAction(agent, bookingAction);
 
-        if (canBookDirectly) {
-          // Cal.com supports direct booking — execute it
-          try {
-            const bookingAction = {
-              ...generatedResponse.booking_action,
-              attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
-              attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
-            };
-            const bookingResult = await executeBookingAction(agent, bookingAction);
+          if (bookingResult.success && bookingResult.meetingUrl) {
+            console.log(`[Webhook] Booking created via ${agent.booking_platform}: ${bookingResult.meetingUrl}`);
+            bookingCompletedDirectly = true;
 
-            if (bookingResult.success && bookingResult.meetingUrl) {
-              console.log(`[Webhook] Booking created directly via Cal.com: ${bookingResult.meetingUrl}`);
-              bookingCompletedDirectly = true;
+            const leadRecord_existing = existingLead || null;
+            try {
+              await createMeetingBooked({
+                agent_id: agent.id,
+                lead_id: leadRecord_existing?.id,
+                lead_email: reply.from_email_address,
+                lead_name: reply.from_name,
+                meeting_url: bookingResult.meetingUrl,
+                booking_platform: agent.booking_platform,
+                booked_at: new Date().toISOString(),
+              });
+            } catch (meetingError) {
+              console.warn('[Webhook] Failed to record meeting:', meetingError);
+            }
 
-              const leadRecord_existing = existingLead || null;
+            if (agent.slack_webhook_url) {
               try {
-                await createMeetingBooked({
-                  agent_id: agent.id,
-                  lead_id: leadRecord_existing?.id,
-                  lead_email: reply.from_email_address,
-                  lead_name: reply.from_name,
-                  meeting_url: bookingResult.meetingUrl,
-                  booking_platform: agent.booking_platform,
-                  booked_at: new Date().toISOString(),
+                const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+                  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+                  : process.env.VERCEL_URL
+                    ? `https://${process.env.VERCEL_URL}`
+                    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                await sendMeetingBookedNotification(agent.slack_webhook_url, {
+                  leadName: reply.from_name,
+                  leadEmail: reply.from_email_address,
+                  agentName: agent.name,
+                  meetingUrl: bookingResult.meetingUrl,
+                  inboxUrl: `${appUrl}/inbox`,
                 });
-              } catch (meetingError) {
-                console.warn('[Webhook] Failed to record meeting:', meetingError);
+              } catch (slackError) {
+                console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
               }
-
-              if (agent.slack_webhook_url) {
-                try {
-                  const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-                    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-                    : process.env.VERCEL_URL
-                      ? `https://${process.env.VERCEL_URL}`
-                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                  await sendMeetingBookedNotification(agent.slack_webhook_url, {
-                    leadName: reply.from_name,
-                    leadEmail: reply.from_email_address,
-                    agentName: agent.name,
-                    meetingUrl: bookingResult.meetingUrl,
-                    inboxUrl: `${appUrl}/inbox`,
-                  });
-                } catch (slackError) {
-                  console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
-                }
-              }
-            } else {
-              console.warn(`[Webhook] Cal.com booking failed:`, bookingResult.error);
-              forceManualApprovalForBooking = true;
-              bookingApprovalReason = `Calendar booking failed (${bookingResult.error}). Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
             }
-          } catch (bookingError: any) {
-            console.warn('[Webhook] Booking error:', bookingError);
+          } else {
+            console.warn(`[Webhook] Booking failed:`, bookingResult.error);
             forceManualApprovalForBooking = true;
-            bookingApprovalReason = `Calendar booking error. Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
+            bookingApprovalReason = `Calendar booking failed (${bookingResult.error}). Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
           }
-        } else {
-          // Calendly (or other platforms) can't book directly via API.
-          // Create a pre-filled scheduling link and append it to the response.
-          try {
-            const bookingAction = {
-              ...generatedResponse.booking_action,
-              attendee_name: generatedResponse.booking_action.attendee_name || reply.from_name || 'Lead',
-              attendee_email: generatedResponse.booking_action.attendee_email || reply.from_email_address,
-            };
-            const bookingResult = await executeBookingAction(agent, bookingAction);
-
-            if (bookingResult.success && bookingResult.meetingUrl) {
-              // Append the pre-filled scheduling link to the AI response
-              if (!generatedResponse.content.includes(bookingResult.meetingUrl)) {
-                generatedResponse.content += `\n\nHere's the link to confirm our call: ${bookingResult.meetingUrl}`;
-              }
-              console.log(`[Webhook] Calendly scheduling link created for ${reply.from_email_address}: ${bookingResult.meetingUrl}`);
-            } else {
-              // Scheduling link failed — fall back to static booking link
-              const fallbackLink = agent.booking_link;
-              if (fallbackLink && !generatedResponse.content.includes(fallbackLink)) {
-                generatedResponse.content += `\n\nHere's the link to book a time: ${fallbackLink}`;
-              }
-              console.warn(`[Webhook] Calendly scheduling link failed, using fallback:`, bookingResult.error);
-            }
-          } catch (bookingError: any) {
-            console.warn('[Webhook] Calendly scheduling link error:', bookingError);
-            // Fall back to static booking link
-            const fallbackLink = agent.booking_link;
-            if (fallbackLink && !generatedResponse.content.includes(fallbackLink)) {
-              generatedResponse.content += `\n\nHere's the link to book a time: ${fallbackLink}`;
-            }
-          }
+        } catch (bookingError: any) {
+          console.warn('[Webhook] Booking error:', bookingError);
+          forceManualApprovalForBooking = true;
+          bookingApprovalReason = `Calendar booking error. Please manually send a calendar invite to ${reply.from_email_address} for the requested time.`;
         }
       } else if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'suggest_link') {
         // AI wants to suggest a booking link — append it to the response
