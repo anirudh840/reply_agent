@@ -121,15 +121,45 @@ export class CalendlyClient {
       startUtc = `${startUtc}Z`;
     }
 
-    const response = await this.request<{ resource: any }>('/invitees', {
-      method: 'POST',
-      body: JSON.stringify({
-        event_type_uri: params.eventTypeUri,
-        start_time: startUtc,
+    // Fetch event type to get its location configuration
+    const eventType = await this.request<{ resource: any }>(params.eventTypeUri);
+    const locations: Array<{ kind: string }> = eventType.resource?.locations || [];
+
+    // Build request body with correct Calendly Scheduling API field names
+    const body: Record<string, any> = {
+      event_type: params.eventTypeUri,
+      start_time: startUtc,
+      invitee: {
         name: params.inviteeName,
         email: params.inviteeEmail,
         timezone: params.inviteeTimezone,
-      }),
+      },
+    };
+
+    // Include location if the event type requires one
+    if (locations.length > 0) {
+      // Prefer video conferencing locations
+      const preferred = locations.find(
+        (l) => l.kind === 'google_conference' || l.kind === 'zoom_conference' || l.kind === 'microsoft_teams_conference'
+      );
+      body.location = { kind: (preferred || locations[0]).kind };
+    }
+
+    // Provide default answers for required custom questions so booking succeeds
+    const customQuestions: Array<{ name: string; required: boolean; position: number; answer_choices?: string[]; type: string }> =
+      eventType.resource?.custom_questions || [];
+    const requiredQuestions = customQuestions.filter((q) => q.required);
+    if (requiredQuestions.length > 0) {
+      body.questions_and_answers = requiredQuestions.map((q) => ({
+        question: q.name,
+        answer: q.answer_choices?.length ? q.answer_choices[0] : (q.type === 'phone_number' ? '+10000000000' : 'N/A'),
+        position: q.position,
+      }));
+    }
+
+    const response = await this.request<{ resource: any }>('/invitees', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
 
     const invitee = response.resource;
