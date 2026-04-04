@@ -25,11 +25,28 @@ export const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
 // Instantly Configuration
 export const INSTANTLY_BASE_URL = 'https://api.instantly.ai/api/v2';
 
-// OpenAI Configuration
+// OpenAI Configuration (embeddings always use OpenAI)
 export const OPENAI_MODELS = {
   GENERATION: 'gpt-4o-mini',
   EMBEDDING: 'text-embedding-3-large',
   EMBEDDING_DIMENSIONS: 1536,
+} as const;
+
+// AI Provider & Model Configuration
+export type AIProvider = 'openai' | 'anthropic';
+
+export const AI_MODELS: Record<AIProvider, Array<{ id: string; label: string }>> = {
+  openai: [
+    { id: 'gpt-4o-mini', label: 'GPT-4o Mini (fast, cheap)' },
+    { id: 'gpt-4o', label: 'GPT-4o (balanced)' },
+    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { id: 'gpt-4.1', label: 'GPT-4.1 (best OpenAI)' },
+  ],
+  anthropic: [
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fast, cheap)' },
+    { id: 'claude-sonnet-4-5-20250514', label: 'Claude Sonnet 4.5 (balanced)' },
+    { id: 'claude-opus-4-6', label: 'Claude Opus 4.6 (best quality)' },
+  ],
 } as const;
 
 // Confidence Thresholds

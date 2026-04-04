@@ -1,4 +1,4 @@
-import { createOpenAIClient } from './client';
+import { createEmbeddingClient } from '../ai/client';
 import { createEmbedding, createEmbeddings, deleteAgentEmbeddings } from '../supabase/queries';
 import type { Agent, KnowledgeBaseEmbedding, ContentType } from '../types';
 import { chunkArray } from '../utils';
@@ -36,7 +36,7 @@ function chunkText(text: string, maxTokens: number = RAG_CONFIG.CHUNK_SIZE): str
  * Generate embeddings for agent knowledge base
  */
 export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<void> {
-  const openaiClient = createOpenAIClient(agent.openai_api_key);
+  const embeddingClient = createEmbeddingClient(agent.openai_api_key);
 
   // Delete existing embeddings for this agent
   await deleteAgentEmbeddings(agent.id);
@@ -71,7 +71,7 @@ export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<voi
 
     // Generate embeddings in batches
     for (const batch of chunkArray(kbTexts, 20)) {
-      const embeddings = await openaiClient.generateEmbeddings(batch);
+      const embeddings = await embeddingClient.generateEmbeddings(batch);
 
       embeddings.forEach((embResult, index) => {
         embeddingsToCreate.push({
@@ -93,7 +93,7 @@ export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<voi
     );
 
     for (const batch of chunkArray(objectionTexts, 20)) {
-      const embeddings = await openaiClient.generateEmbeddings(batch);
+      const embeddings = await embeddingClient.generateEmbeddings(batch);
 
       embeddings.forEach((embResult, index) => {
         embeddingsToCreate.push({
@@ -116,7 +116,7 @@ export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<voi
     );
 
     for (const batch of chunkArray(caseStudyTexts, 20)) {
-      const embeddings = await openaiClient.generateEmbeddings(batch);
+      const embeddings = await embeddingClient.generateEmbeddings(batch);
 
       embeddings.forEach((embResult, index) => {
         embeddingsToCreate.push({
@@ -139,7 +139,7 @@ export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<voi
     );
 
     for (const batch of chunkArray(patternTexts, 20)) {
-      const embeddings = await openaiClient.generateEmbeddings(batch);
+      const embeddings = await embeddingClient.generateEmbeddings(batch);
 
       embeddings.forEach((embResult, index) => {
         embeddingsToCreate.push({
@@ -171,8 +171,8 @@ export async function addLearnedPatternEmbedding(
   patternText: string,
   metadata: Record<string, any> = {}
 ): Promise<void> {
-  const openaiClient = createOpenAIClient(openaiApiKey);
-  const embResult = await openaiClient.generateEmbedding(patternText);
+  const embeddingClient = createEmbeddingClient(openaiApiKey);
+  const embResult = await embeddingClient.generateEmbedding(patternText);
 
   await createEmbedding({
     agent_id: agentId,

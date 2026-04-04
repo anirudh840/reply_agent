@@ -36,9 +36,11 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { formatRelativeTime, safeFormatDate } from '@/lib/utils';
+import { inferLeadTimezone } from '@/lib/utils/timezone-inference';
 import type { InterestedLead, Agent } from '@/lib/types';
 import { RichTextEditor } from '@/components/inbox/RichTextEditor';
 import { toast, Toaster } from 'react-hot-toast';
+import { Globe } from 'lucide-react';
 
 type Category = 'all' | 'interested' | 'not_interested' | 'followup' | 'automated' | 'not_automated' | 'tracked' | 'untracked';
 
@@ -1491,6 +1493,39 @@ export default function InboxPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* Lead Timezone */}
+                  {(() => {
+                    const conversationText = selectedLead.conversation_thread
+                      .filter((m) => m.role === 'lead')
+                      .map((m) => m.content)
+                      .join('\n');
+                    const tz = inferLeadTimezone({
+                      leadMetadata: selectedLead.lead_metadata,
+                      conversationContent: conversationText,
+                    });
+                    if (!tz) return null;
+                    // Get current time in lead's timezone
+                    const leadTime = new Date().toLocaleTimeString('en-US', {
+                      timeZone: tz.timezone,
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    });
+                    return (
+                      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Globe className="h-3.5 w-3.5 text-blue-600" />
+                          <h4 className="text-xs font-semibold text-blue-700 uppercase">Lead&apos;s Local Time</h4>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-blue-900">{leadTime} {tz.shortLabel}</span>
+                          <span className="text-xs text-blue-600">{tz.timezone}</span>
+                        </div>
+                        <p className="text-xs text-blue-500 mt-1">Inferred from {tz.source}</p>
+                      </div>
+                    );
+                  })()}
 
                   {/* Conversation Metrics */}
                   <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">

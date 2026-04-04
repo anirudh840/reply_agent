@@ -1,4 +1,4 @@
-import { createOpenAIClient } from './client';
+import { createCompletionClientFromKey } from '../ai/client';
 import type { CategorizationResult, Reply } from '../types';
 import { REPLY_STATUS } from '../constants';
 
@@ -46,9 +46,15 @@ Provide your analysis in JSON format.`;
 export async function categorizeReply(params: {
   reply: Reply | { reply_body: string; reply_subject?: string; original_status: string };
   openaiApiKey: string;
+  aiProvider?: string;
+  anthropicApiKey?: string;
+  aiModel?: string;
 }): Promise<CategorizationResult> {
-  const { reply, openaiApiKey } = params;
-  const openaiClient = createOpenAIClient(openaiApiKey);
+  const { reply, openaiApiKey, aiProvider, anthropicApiKey, aiModel } = params;
+  // Use the configured AI provider for categorization (Anthropic if configured, else OpenAI)
+  const provider = aiProvider || 'openai';
+  const apiKey = provider === 'anthropic' && anthropicApiKey ? anthropicApiKey : openaiApiKey;
+  const aiClient = createCompletionClientFromKey(provider, apiKey, aiModel);
 
   const userPrompt = `Analyze this email reply from a cold outreach campaign:
 
@@ -71,7 +77,7 @@ Respond in JSON format with:
   "reasoning": "Brief explanation of your categorization"
 }`;
 
-  const response = await openaiClient.generateCompletion({
+  const response = await aiClient.generateCompletion({
     messages: [
       { role: 'system', content: CATEGORIZATION_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },

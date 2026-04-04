@@ -27,6 +27,9 @@ export interface Database {
           confidence_threshold: number;
           is_active: boolean;
           last_sync_at: string | null;
+          ai_provider: string | null;
+          ai_model: string | null;
+          anthropic_api_key: string | null;
         };
         Insert: Omit<Database['public']['Tables']['agents']['Row'], 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Database['public']['Tables']['agents']['Insert']>;

@@ -1,4 +1,4 @@
-import { createOpenAIClient } from './client';
+import { createCompletionClient } from '../ai/client';
 import { getFormattedContext } from '../rag/retrieval';
 import { getAvailabilityContext } from '../integrations/booking';
 import type { GeneratedResponse, Agent, InterestedLead, ConversationMessage } from '../types';
@@ -84,7 +84,7 @@ export async function generateResponse(params: {
     throw new Error('Lead message cannot be empty');
   }
 
-  const openaiClient = createOpenAIClient(agent.openai_api_key);
+  const aiClient = createCompletionClient(agent);
 
   // Retrieve relevant context from knowledge base
   const { results, formattedContext } = await getFormattedContext({
@@ -188,7 +188,7 @@ Respond in JSON format with:
   "reasoning": "Brief explanation of why you chose this response and your confidence level"${bookingJsonSection}
 }`;
 
-  const response = await openaiClient.generateCompletion({
+  const response = await aiClient.generateCompletion({
     messages: [
       { role: 'system', content: RESPONSE_GENERATION_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
@@ -231,7 +231,7 @@ export async function generateFollowup(params: {
 }): Promise<GeneratedResponse> {
   const { lead, agent, followupStage } = params;
 
-  const openaiClient = createOpenAIClient(agent.openai_api_key);
+  const aiClient = createCompletionClient(agent);
 
   // Get followup configuration
   const followupConfig = agent.followup_sequence.steps[followupStage - 1];
@@ -302,7 +302,7 @@ Respond in JSON format with:
   "reasoning": "Brief explanation"
 }`;
 
-  const response = await openaiClient.generateCompletion({
+  const response = await aiClient.generateCompletion({
     messages: [
       {
         role: 'system',

@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Loader2, Plus, Trash2, Globe, AlertCircle, Check, X, Eye, EyeOff, Copy, Link } from 'lucide-react';
-import { TIMEZONES, PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
-import type { Agent, BookingPlatform } from '@/lib/types';
+import { TIMEZONES, PLATFORM_DISPLAY_NAMES, AI_MODELS } from '@/lib/constants';
+import type { Agent, BookingPlatform, AIProvider } from '@/lib/types';
 
 export default function ConfigureAgentPage() {
   const router = useRouter();
@@ -58,6 +58,13 @@ export default function ConfigureAgentPage() {
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [hasPlatformKey, setHasPlatformKey] = useState(false);
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
+
+  // AI Provider & Model
+  const [aiProvider, setAiProvider] = useState<'openai' | 'anthropic'>('openai');
+  const [aiModel, setAiModel] = useState('gpt-4o-mini');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
 
   // Webhook URL
   const [webhookUrl, setWebhookUrl] = useState('');
@@ -132,8 +139,14 @@ export default function ConfigureAgentPage() {
         // API Keys — DON'T show actual keys; just track whether they exist
         setHasPlatformKey(!!agentData.emailbison_api_key);
         setHasOpenaiKey(!!agentData.openai_api_key);
+        setHasAnthropicKey(!!agentData.anthropic_api_key);
         setPlatformApiKey(''); // Keep empty for security
         setOpenaiApiKey('');   // Keep empty for security
+        setAnthropicApiKey('');
+
+        // AI Provider & Model
+        setAiProvider(agentData.ai_provider || 'openai');
+        setAiModel(agentData.ai_model || 'gpt-4o-mini');
 
         // Webhook URL
         if (agentData.webhook_id) {
@@ -288,6 +301,9 @@ export default function ConfigureAgentPage() {
               type: 'custom',
               steps: customSequence,
             },
+        // AI Provider & Model
+        ai_provider: aiProvider,
+        ai_model: aiModel,
         // Integrations
         slack_webhook_url: slackWebhookUrl || null,
         booking_platform: bookingPlatform || null,
@@ -302,6 +318,9 @@ export default function ConfigureAgentPage() {
       }
       if (openaiApiKey.trim()) {
         updates.openai_api_key = openaiApiKey;
+      }
+      if (anthropicApiKey.trim()) {
+        updates.anthropic_api_key = anthropicApiKey;
       }
 
       const response = await fetch(`/api/agents/${agentId}`, {
@@ -540,6 +559,81 @@ export default function ConfigureAgentPage() {
                 <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Provider & Model */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>AI Provider & Model</CardTitle>
+            <CardDescription>Choose which AI provider and model to use for response generation and categorization.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">AI Provider</label>
+              <select
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                value={aiProvider}
+                onChange={(e) => {
+                  const provider = e.target.value as AIProvider;
+                  setAiProvider(provider);
+                  // Auto-select first model for the new provider
+                  setAiModel(AI_MODELS[provider][0].id);
+                }}
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Model</label>
+              <select
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
+              >
+                {AI_MODELS[aiProvider].map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {aiProvider === 'openai'
+                  ? 'OpenAI API key is used for both completions and embeddings.'
+                  : 'Anthropic API key is used for completions. OpenAI key is still required for embeddings (RAG search).'}
+              </p>
+            </div>
+
+            {aiProvider === 'anthropic' && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="block text-sm font-medium">Anthropic API Key</label>
+                  {hasAnthropicKey && !anthropicApiKey && (
+                    <Badge variant="secondary" className="text-xs">Key set</Badge>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type={showAnthropicKey ? 'text' : 'password'}
+                    value={anthropicApiKey}
+                    onChange={(e) => setAnthropicApiKey(e.target.value)}
+                    placeholder={hasAnthropicKey ? 'Enter new key to replace existing' : 'Enter Anthropic API key (sk-ant-...)'}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                    className="px-3"
+                  >
+                    {showAnthropicKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {hasAnthropicKey && (
+                  <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

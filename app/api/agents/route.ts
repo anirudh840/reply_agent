@@ -3,7 +3,7 @@ import { createAgent, getAgents } from '@/lib/supabase/queries';
 import { generateKnowledgeBaseEmbeddings } from '@/lib/openai/embeddings';
 import { createPlatformClient, platformDisplayName } from '@/lib/platforms';
 import type { PlatformType } from '@/lib/platforms/types';
-import { createOpenAIClient } from '@/lib/openai/client';
+import { createEmbeddingClient, testAIConnection } from '@/lib/ai/client';
 import { generateWebhookId, getWebhookUrl, getBookingWebhookUrl } from '@/lib/webhooks';
 import { CalComClient } from '@/lib/integrations/calcom';
 import { CalendlyClient } from '@/lib/integrations/calendly';
@@ -86,10 +86,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Test OpenAI API connection
+    // Test OpenAI API connection (always needed for embeddings)
     try {
-      const openaiClient = createOpenAIClient(body.openai_api_key);
-      const isValidOpenAI = await openaiClient.testConnection();
+      const embeddingClient = createEmbeddingClient(body.openai_api_key);
+      const isValidOpenAI = await embeddingClient.testConnection();
 
       if (!isValidOpenAI) {
         return NextResponse.json(
@@ -108,6 +108,24 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // Test Anthropic API connection if configured
+    if (body.ai_provider === 'anthropic' && body.anthropic_api_key) {
+      try {
+        const isValid = await testAIConnection('anthropic', body.anthropic_api_key, body.ai_model);
+        if (!isValid) {
+          return NextResponse.json(
+            { success: false, error: 'Invalid Anthropic API key' },
+            { status: 400 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { success: false, error: 'Failed to connect to Anthropic API. Please check your API key.' },
+          { status: 400 }
+        );
+      }
     }
 
     // Generate unique webhook ID for this agent
@@ -140,6 +158,10 @@ export async function POST(request: NextRequest) {
       last_sync_at: undefined,
       webhook_id: webhookId,
       webhook_secret: undefined, // Can be added later for verification
+      // AI Provider & Model (optional)
+      ai_provider: body.ai_provider || 'openai',
+      ai_model: body.ai_model || 'gpt-4o-mini',
+      anthropic_api_key: body.anthropic_api_key || undefined,
       // Slack Integration (optional)
       slack_webhook_url: body.slack_webhook_url || undefined,
       // Booking Integration (optional)

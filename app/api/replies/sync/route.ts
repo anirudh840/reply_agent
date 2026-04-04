@@ -89,6 +89,9 @@ export async function POST(request: NextRequest) {
             const categorization = await categorizeReply({
               reply,
               openaiApiKey: agent.openai_api_key,
+              aiProvider: agent.ai_provider,
+              anthropicApiKey: agent.anthropic_api_key,
+              aiModel: agent.ai_model,
             });
 
             // Update reply with categorization results

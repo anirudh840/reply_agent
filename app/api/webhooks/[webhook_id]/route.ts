@@ -302,6 +302,9 @@ export async function POST(
         original_status: reply.interested ? 'interested' : 'not_interested',
       },
       openaiApiKey: agent.openai_api_key,
+      aiProvider: agent.ai_provider,
+      anthropicApiKey: agent.anthropic_api_key,
+      aiModel: agent.ai_model,
     });
 
     // Store reply in database

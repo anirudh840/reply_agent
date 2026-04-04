@@ -1,4 +1,4 @@
-import { createOpenAIClient } from '../openai/client';
+import { createEmbeddingClient } from '../ai/client';
 import { searchKnowledgeBase } from '../supabase/queries';
 import type { RetrievalResult } from '../types';
 import { RAG_CONFIG } from '../constants';
@@ -22,8 +22,8 @@ export async function retrieveContext(params: {
   } = params;
 
   // Generate embedding for the query
-  const openaiClient = createOpenAIClient(openaiApiKey);
-  const embeddingResult = await openaiClient.generateEmbedding(query);
+  const embeddingClient = createEmbeddingClient(openaiApiKey);
+  const embeddingResult = await embeddingClient.generateEmbedding(query);
 
   // Search knowledge base using vector similarity
   const results = await searchKnowledgeBase(

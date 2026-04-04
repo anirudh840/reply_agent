@@ -8,6 +8,7 @@ export type { PlatformType } from './platforms/types';
 // Agent Types
 export type AgentMode = 'fully_automated' | 'human_in_loop';
 export type BookingPlatform = 'cal_com' | 'calendly';
+export type AIProvider = 'openai' | 'anthropic';
 
 export interface Agent {
   id: string;
@@ -33,6 +34,10 @@ export interface Agent {
   webhook_secret?: string; // Secret for webhook verification (optional)
   // Slack Integration (optional)
   slack_webhook_url?: string;
+  // AI Provider & Model (optional, defaults to openai + gpt-4o-mini)
+  ai_provider?: AIProvider;
+  ai_model?: string;
+  anthropic_api_key?: string;
   // Booking Integration (optional)
   booking_platform?: BookingPlatform;
   booking_api_key?: string;
