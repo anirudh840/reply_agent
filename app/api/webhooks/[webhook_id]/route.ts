@@ -560,8 +560,9 @@ export async function POST(
           };
           const bookingResult = await executeBookingAction(agent, bookingAction);
 
-          if (bookingResult.success && bookingResult.meetingUrl) {
-            console.log(`[Webhook] Booking created via ${agent.booking_platform}: ${bookingResult.meetingUrl}`);
+          if (bookingResult.success && bookingResult.meetingUrl && bookingResult.directBooking) {
+            // DIRECT BOOKING: Calendar event created, invite sent automatically
+            console.log(`[Webhook] Direct booking created via ${agent.booking_platform}: ${bookingResult.meetingUrl}`);
             bookingCompletedDirectly = true;
 
             const leadRecord_existing = existingLead || null;
@@ -596,6 +597,13 @@ export async function POST(
               } catch (slackError) {
                 console.warn('[Webhook] Failed to send meeting Slack notification:', slackError);
               }
+            }
+          } else if (bookingResult.success && bookingResult.meetingUrl && !bookingResult.directBooking) {
+            // SCHEDULING LINK FALLBACK: No event created yet — append link to response
+            // Lead must click the link to finalize the booking.
+            console.log(`[Webhook] Direct booking failed, appending scheduling link for ${reply.from_email_address}: ${bookingResult.meetingUrl}`);
+            if (!generatedResponse.content.includes(bookingResult.meetingUrl)) {
+              generatedResponse.content += `\n\nHere's the link to confirm our call: ${bookingResult.meetingUrl}`;
             }
           } else {
             console.warn(`[Webhook] Booking failed:`, bookingResult.error);

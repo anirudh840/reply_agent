@@ -58,7 +58,7 @@ export interface BookingClient {
     timezone: string;
     attendeeName: string;
     attendeeEmail: string;
-  }): Promise<{ success: boolean; meetingUrl?: string; error?: string }>;
+  }): Promise<{ success: boolean; meetingUrl?: string; error?: string; directBooking?: boolean }>;
   getBookingLink(): string | undefined;
 }
 
@@ -90,7 +90,7 @@ class CalComBookingAdapter implements BookingClient {
     timezone: string;
     attendeeName: string;
     attendeeEmail: string;
-  }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
+  }): Promise<{ success: boolean; meetingUrl?: string; error?: string; directBooking?: boolean }> {
     try {
       // Convert local time + timezone to UTC for the calendar API
       const startUtc = localTimeToUtc(params.date, params.startTime, params.timezone);
@@ -107,6 +107,7 @@ class CalComBookingAdapter implements BookingClient {
       return {
         success: true,
         meetingUrl: result.meetingUrl,
+        directBooking: true,
       };
     } catch (error: any) {
       return {
@@ -174,7 +175,7 @@ class CalendlyBookingAdapter implements BookingClient {
     timezone: string;
     attendeeName: string;
     attendeeEmail: string;
-  }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
+  }): Promise<{ success: boolean; meetingUrl?: string; error?: string; directBooking?: boolean }> {
     // Convert local time + timezone to UTC for the calendar API
     const startUtc = localTimeToUtc(params.date, params.startTime, params.timezone);
 
@@ -194,12 +195,14 @@ class CalendlyBookingAdapter implements BookingClient {
       return {
         success: true,
         meetingUrl: result.schedulingUrl || result.uri,
+        directBooking: true,
       };
     } catch (directError: any) {
       console.warn('[Calendly] Direct booking failed (may need paid plan), falling back to scheduling link:', directError.message);
     }
 
     // Step 2: Fallback — create a pre-filled scheduling link
+    // NOTE: This is NOT a confirmed booking. The lead must click the link to finalize.
     try {
       const result = await this.client.createSchedulingLink({
         eventTypeUri: this.agent.booking_event_id!,
@@ -216,6 +219,7 @@ class CalendlyBookingAdapter implements BookingClient {
       return {
         success: true,
         meetingUrl: prefilledUrl,
+        directBooking: false,
       };
     } catch (linkError: any) {
       // Step 3: Final fallback — static booking link
@@ -231,6 +235,7 @@ class CalendlyBookingAdapter implements BookingClient {
         return {
           success: true,
           meetingUrl: prefilledFallback,
+          directBooking: false,
         };
       }
       return {
@@ -350,7 +355,7 @@ export async function getAvailabilityContext(agent: Agent): Promise<string> {
 export async function executeBookingAction(
   agent: Agent,
   action: BookingAction
-): Promise<{ success: boolean; meetingUrl?: string; bookingLink?: string; error?: string }> {
+): Promise<{ success: boolean; meetingUrl?: string; bookingLink?: string; error?: string; directBooking?: boolean }> {
   if (action.action === 'none') {
     return { success: true };
   }

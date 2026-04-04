@@ -134,9 +134,10 @@ export async function POST(request: NextRequest) {
                     attendee_email: generatedResponse.booking_action.attendee_email || emailbisonReply.from_email,
                   };
                   const bookingResult = await executeBookingAction(agent, bookingAction);
-                  if (bookingResult.success && bookingResult.meetingUrl) {
+                  if (bookingResult.success && bookingResult.meetingUrl && bookingResult.directBooking) {
+                    // Direct booking succeeded — calendar invite sent automatically
                     bookingCompletedDirectly = true;
-                    console.log(`[Cron] Booking created via ${agent.booking_platform}: ${bookingResult.meetingUrl}`);
+                    console.log(`[Cron] Direct booking created via ${agent.booking_platform}: ${bookingResult.meetingUrl}`);
                     try {
                       await createMeetingBooked({
                         agent_id: agent.id,
@@ -147,6 +148,12 @@ export async function POST(request: NextRequest) {
                         booked_at: new Date().toISOString(),
                       });
                     } catch (e) { console.warn('[Cron] Failed to record meeting:', e); }
+                  } else if (bookingResult.success && bookingResult.meetingUrl && !bookingResult.directBooking) {
+                    // Scheduling link fallback — append link to response, don't mark as completed
+                    console.log(`[Cron] Direct booking failed, appending scheduling link for ${emailbisonReply.from_email}`);
+                    if (!generatedResponse.content.includes(bookingResult.meetingUrl)) {
+                      generatedResponse.content += `\n\nHere's the link to confirm our call: ${bookingResult.meetingUrl}`;
+                    }
                   }
                 } catch (e) { console.warn('[Cron] Booking error:', e); }
               } else if (generatedResponse.booking_action && generatedResponse.booking_action.action === 'suggest_link') {
