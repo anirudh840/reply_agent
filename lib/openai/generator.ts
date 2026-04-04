@@ -93,11 +93,21 @@ export async function generateResponse(params: {
     openaiApiKey: agent.openai_api_key,
   });
 
+  // Deduplicate conversation history — thread-sync can create duplicate agent messages
+  // (one from API with msg_id, one from local append without msg_id, same content)
+  const deduped: ConversationMessage[] = [];
+  for (const msg of conversationHistory) {
+    const isDupe = deduped.some(
+      (d) => d.role === msg.role && d.content === msg.content
+    );
+    if (!isDupe) deduped.push(msg);
+  }
+
   // Build conversation history string
   const historyString =
-    conversationHistory.length > 0
-      ? conversationHistory
-          .slice(-5) // Last 5 messages for context
+    deduped.length > 0
+      ? deduped
+          .slice(-6) // Last 6 messages for context
           .map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`)
           .join('\n\n')
       : 'No previous conversation';
@@ -145,7 +155,7 @@ ${leadMessage}
 
 IMPORTANT: Your response MUST address the LATEST MESSAGE above. The conversation history below is for context only — do NOT confuse details from older messages with the latest one. If the latest message mentions a specific time, date, or request, respond to EXACTLY what they said in the latest message, not what was discussed before.
 
-CONVERSATION HISTORY (for background context only):
+CONVERSATION HISTORY (for background context only — do NOT re-address topics from these older messages):
 ${historyString}
 ${originalEmailContext ? `\nORIGINAL OUTBOUND EMAIL (what was sent to the lead — use this to understand what they are responding to):\n${originalEmailContext}\n` : ''}
 RELEVANT KNOWLEDGE BASE CONTEXT:
@@ -154,20 +164,22 @@ ${formattedContext}
 COMPANY/PRODUCT INFO:
 ${agent.knowledge_base.product_description || 'No product description available'}
 
-INSTRUCTIONS:
+INSTRUCTIONS (use as a guide for the FIRST reply only — for follow-ups, respond naturally to what the lead said):
 ${agent.knowledge_base.custom_instructions || 'Respond professionally and helpfully'}
 ${availabilitySection}
 Generate an appropriate email response that:
-1. Directly addresses the LATEST MESSAGE — use the exact time/date/details they mentioned
-2. Uses information from the knowledge base
+1. Directly addresses the LATEST MESSAGE — respond to what the lead JUST said, not older topics
+2. Uses information from the knowledge base when relevant
 3. Includes a clear next step or call-to-action
 4. Maintains a professional yet friendly tone
+5. When suggesting or confirming times, ALWAYS include the timezone (e.g., "2:00 PM ET", "15:00 CET") — never give a bare time without a timezone
 
 CRITICAL RULES:
 - This is a REPLY in an existing email thread. Do NOT include any subject line.
 - Do NOT use ANY placeholder brackets like [Your Name], [Company], etc. If you don't know it, leave it out entirely.
 - Do NOT add a signature block (no name, title, company, phone, website at the end).
 - End with just a sign-off like "Best," or "Cheers," and STOP.
+- REMINDER: Respond to the LATEST MESSAGE, not the conversation history. If the lead asked a question, answer it. If they confirmed a time, confirm it back. Do NOT rehash earlier topics.
 
 Respond in JSON format with:
 {
@@ -181,7 +193,7 @@ Respond in JSON format with:
       { role: 'system', content: RESPONSE_GENERATION_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.7,
+    temperature: 0.5,
     max_tokens: 1000,
     response_format: { type: 'json_object' },
   });

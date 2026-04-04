@@ -126,7 +126,13 @@ export async function refreshConversationThread(params: {
               m.role === 'agent' &&
               m.emailbison_message_id === sentMessage.message_id
           )
-        : false;
+        : // When message_id is missing, fall back to content matching
+          // to avoid duplicating the same agent message
+          newThread.some(
+            (m) =>
+              m.role === 'agent' &&
+              m.content === sentMessage.content
+          );
 
       if (!alreadyExists) {
         newThread.push({
