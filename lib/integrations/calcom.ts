@@ -138,7 +138,7 @@ export class CalComClient {
     attendeeTimezone: string;
     notes?: string;
   }): Promise<CalComBookingResult> {
-    // Ensure start time is in proper UTC ISO 8601 format
+    // Callers must pass UTC time (converted from local timezone). Safety net: append Z if missing.
     let startUtc = params.start;
     if (!startUtc.endsWith('Z') && !startUtc.includes('+')) {
       startUtc = `${startUtc}Z`;

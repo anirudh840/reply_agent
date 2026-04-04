@@ -2,6 +2,54 @@ import { CalComClient } from './calcom';
 import { CalendlyClient } from './calendly';
 import type { Agent, BookingAction, AvailableSlot } from '../types';
 
+/**
+ * Convert a local date/time + IANA timezone to a UTC ISO string.
+ * Example: localTimeToUtc("2026-04-03", "16:00", "America/New_York") → "2026-04-03T20:00:00Z"
+ *
+ * Uses Intl.DateTimeFormat to resolve the timezone offset, avoiding external deps.
+ */
+function localTimeToUtc(date: string, time: string, timezone: string): string {
+  // Build a date string in the local timezone and parse it
+  const localStr = `${date}T${time}:00`;
+
+  // Get the UTC offset for this timezone at this date/time
+  // by formatting the same instant in UTC and in the target timezone
+  const localDate = new Date(localStr);
+
+  // Use a formatter to get the offset
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+
+  // Format the UTC reference point in the target timezone to find the offset
+  // Strategy: we know `localStr` is what the clock shows in `timezone`.
+  // We need to find the UTC instant where the clock in `timezone` shows that time.
+  // Approach: try parsing as UTC, get the timezone representation, compute the delta.
+  const asUtc = new Date(localStr + 'Z'); // Interpret as UTC first
+  const parts = formatter.formatToParts(asUtc);
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '0';
+  const tzYear = parseInt(get('year'));
+  const tzMonth = parseInt(get('month'));
+  const tzDay = parseInt(get('day'));
+  const tzHour = parseInt(get('hour') === '24' ? '0' : get('hour'));
+  const tzMinute = parseInt(get('minute'));
+
+  // The difference between what UTC shows and what the timezone shows = offset
+  const utcMs = Date.UTC(
+    parseInt(date.slice(0, 4)), parseInt(date.slice(5, 7)) - 1, parseInt(date.slice(8, 10)),
+    parseInt(time.slice(0, 2)), parseInt(time.slice(3, 5)), 0
+  );
+  const tzMs = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0);
+  const offsetMs = tzMs - utcMs; // positive = timezone is ahead of UTC
+
+  // The actual UTC time = local time - offset
+  const actualUtc = new Date(utcMs - offsetMs);
+  return actualUtc.toISOString().replace('.000Z', 'Z');
+}
+
 export interface BookingClient {
   getAvailableSlots(daysAhead?: number): Promise<AvailableSlot[]>;
   executeBooking?(params: {
@@ -44,12 +92,12 @@ class CalComBookingAdapter implements BookingClient {
     attendeeEmail: string;
   }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
     try {
-      // Build ISO datetime from date + time + timezone
-      const startISO = `${params.date}T${params.startTime}:00`;
+      // Convert local time + timezone to UTC for the calendar API
+      const startUtc = localTimeToUtc(params.date, params.startTime, params.timezone);
 
       const result = await this.client.createBooking({
         eventTypeId: parseInt(this.agent.booking_event_id!, 10),
-        start: startISO,
+        start: startUtc,
         attendeeName: params.attendeeName,
         attendeeEmail: params.attendeeEmail,
         attendeeTimezone: params.timezone,
@@ -127,8 +175,8 @@ class CalendlyBookingAdapter implements BookingClient {
     attendeeName: string;
     attendeeEmail: string;
   }): Promise<{ success: boolean; meetingUrl?: string; error?: string }> {
-    // Build ISO datetime from date + time
-    const startISO = `${params.date}T${params.startTime}:00`;
+    // Convert local time + timezone to UTC for the calendar API
+    const startUtc = localTimeToUtc(params.date, params.startTime, params.timezone);
 
     // Step 1: Try direct booking via Calendly Scheduling API (POST /invitees)
     // This creates the event and sends calendar invites automatically.
@@ -136,7 +184,7 @@ class CalendlyBookingAdapter implements BookingClient {
     try {
       const result = await this.client.createBooking({
         eventTypeUri: this.agent.booking_event_id!,
-        startTime: startISO,
+        startTime: startUtc,
         inviteeName: params.attendeeName,
         inviteeEmail: params.attendeeEmail,
         inviteeTimezone: params.timezone,
@@ -212,23 +260,64 @@ export function createBookingClient(agent: Agent): BookingClient | null {
   }
 }
 
+/**
+ * Convert a UTC slot (date + HH:MM) to a local date + HH:MM in the given timezone.
+ */
+function utcSlotToLocal(
+  utcDate: string,
+  utcTime: string,
+  timezone: string
+): { date: string; time: string } {
+  const utcMs = Date.UTC(
+    parseInt(utcDate.slice(0, 4)),
+    parseInt(utcDate.slice(5, 7)) - 1,
+    parseInt(utcDate.slice(8, 10)),
+    parseInt(utcTime.slice(0, 2)),
+    parseInt(utcTime.slice(3, 5)),
+    0
+  );
+  const utcDt = new Date(utcMs);
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(utcDt);
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '00';
+  const localDate = `${get('year')}-${get('month')}-${get('day')}`;
+  const h = get('hour') === '24' ? '00' : get('hour');
+  const localTime = `${h}:${get('minute')}`;
+  return { date: localDate, time: localTime };
+}
+
 function formatSlotsForPrompt(
   slots: AvailableSlot[],
   platform: string,
-  bookingLink?: string
+  bookingLink?: string,
+  agentTimezone?: string
 ): string {
-  // Group by date, limit to 15 slots
+  // Convert UTC slots to the agent's timezone (or keep as UTC)
+  const tz = agentTimezone || 'UTC';
   const limited = slots.slice(0, 15);
   const byDate: Record<string, string[]> = {};
 
   for (const slot of limited) {
-    if (!byDate[slot.date]) byDate[slot.date] = [];
-    byDate[slot.date].push(slot.start_time);
+    const local = utcSlotToLocal(slot.date, slot.start_time, tz);
+    if (!byDate[local.date]) byDate[local.date] = [];
+    byDate[local.date].push(local.time);
   }
 
-  let result = '';
+  // Build a short timezone label (e.g. "ET", "CT", "IST")
+  const tzLabel = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    timeZoneName: 'short',
+  }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || tz;
+
+  let result = `All times shown in ${tzLabel}:\n`;
   for (const [date, times] of Object.entries(byDate)) {
-    const dayStr = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+    const dayStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'short',
       day: 'numeric',
@@ -251,7 +340,7 @@ export async function getAvailabilityContext(agent: Agent): Promise<string> {
     const slots = await client.getAvailableSlots(7);
     if (slots.length === 0) return 'No available calendar slots found in the next 7 days.';
 
-    return formatSlotsForPrompt(slots, agent.booking_platform!, agent.booking_link);
+    return formatSlotsForPrompt(slots, agent.booking_platform!, agent.booking_link, agent.timezone);
   } catch (error) {
     console.warn('[Booking] Failed to fetch availability:', error);
     return '';

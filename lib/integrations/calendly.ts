@@ -110,7 +110,7 @@ export class CalendlyClient {
    */
   async createBooking(params: {
     eventTypeUri: string;
-    startTime: string; // UTC ISO 8601, e.g. "2026-04-02T14:00:00Z"
+    startTime: string; // Must be UTC ISO 8601, e.g. "2026-04-02T20:00:00Z" (callers must convert local→UTC first)
     inviteeName: string;
     inviteeEmail: string;
     inviteeTimezone: string; // IANA, e.g. "America/New_York"
