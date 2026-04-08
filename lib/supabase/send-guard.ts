@@ -1,6 +1,6 @@
 import { supabaseAdmin } from './client';
 
-export type SendSource = 'webhook' | 'cron' | 'followup' | 'approve' | 'manual' | 'legacy_approve';
+export type SendSource = 'webhook' | 'cron' | 'followup' | 'approve' | 'manual' | 'legacy_approve' | 'generate';
 
 interface AcquireSendLockParams {
   agentId: string;

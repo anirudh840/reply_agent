@@ -68,10 +68,32 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            // Check if we've already processed this reply (per-agent)
-            const existing = await getReplyByEmailBisonId(emailbisonReply.id, agent.id);
-            if (existing) {
-              continue; // Skip already processed replies
+            // ── Global duplicate check (cross-agent) ──
+            // Prevent the same reply from being processed by multiple agents.
+            // This is critical: if API keys have cross-workspace access, the same
+            // reply could appear in multiple agents' getReplies() results.
+            const globalExisting = await getReplyByEmailBisonId(emailbisonReply.id);
+            if (globalExisting) {
+              if (globalExisting.agent_id !== agent.id) {
+                console.warn(
+                  `[Cron] CROSS-AGENT SKIP: Reply ${emailbisonReply.id} already processed by agent ${globalExisting.agent_id}, ` +
+                    `skipping for agent ${agent.id} (${agent.name}). From: ${emailbisonReply.from_email}`
+                );
+              }
+              continue; // Skip — already processed by this or another agent
+            }
+
+            // ── Workspace isolation check ──
+            // If the reply carries workspace metadata, verify it matches this agent.
+            // emailbisonReply.lead_data may contain the raw API response with workspace info.
+            const replyWorkspaceId = emailbisonReply.lead_data?.workspace_id?.toString()
+              || emailbisonReply.lead_data?.reply_raw?.workspace_id?.toString();
+            if (replyWorkspaceId && agent.emailbison_workspace_id && replyWorkspaceId !== agent.emailbison_workspace_id) {
+              console.warn(
+                `[Cron] WORKSPACE MISMATCH: Reply ${emailbisonReply.id} workspace "${replyWorkspaceId}" ` +
+                  `does not match agent "${agent.name}" workspace "${agent.emailbison_workspace_id}". Skipping.`
+              );
+              continue;
             }
 
             results.processed++;

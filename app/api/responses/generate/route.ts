@@ -8,6 +8,7 @@ import {
 } from '@/lib/supabase/queries';
 import { generateResponse } from '@/lib/openai/generator';
 import { createClientForAgent } from '@/lib/platforms';
+import { acquireSendLock, markSendComplete, markSendFailed } from '@/lib/supabase/send-guard';
 import type { ConversationMessage } from '@/lib/types';
 import { CONFIDENCE_THRESHOLDS } from '@/lib/constants';
 
@@ -116,40 +117,58 @@ export async function POST(request: NextRequest) {
 
     // Auto-send if eligible (fully automated + high confidence)
     if (!needsApproval && agent.mode === 'fully_automated') {
-      try {
-        const emailbisonClient = createClientForAgent(agent);
+      // Acquire send lock to prevent duplicate sends across webhook/cron/generate paths
+      const sendLock = await acquireSendLock({
+        agentId: agent.id,
+        leadId: interestedLead.id,
+        leadEmail: reply.lead_email,
+        idempotencyKey: `generate-reply-to:${reply.emailbison_reply_id}`,
+        sendSource: 'generate',
+        messageContent: generatedResponse.content,
+      });
 
-        const sendResult = await emailbisonClient.sendReply({
-          replyId: reply.emailbison_reply_id,
-          message: generatedResponse.content,
-        });
+      if (!sendLock.acquired) {
+        console.log(`[Generate] Send lock not acquired for reply ${reply.id}, another process already sending`);
+        autoSendResult = { sent: false, error: 'Send lock not acquired — another process is already sending' };
+      } else {
+        try {
+          const emailbisonClient = createClientForAgent(agent);
 
-        // Update lead record with sent status
-        const updatedThread: ConversationMessage[] = [
-          ...interestedLead.conversation_thread,
-          {
-            role: 'agent',
-            content: generatedResponse.content,
-            timestamp: new Date().toISOString(),
-            emailbison_message_id: sendResult.message_id,
-          },
-        ];
+          const sendResult = await emailbisonClient.sendReply({
+            replyId: reply.emailbison_reply_id,
+            message: generatedResponse.content,
+          });
 
-        await updateInterestedLead(interestedLead.id, {
-          conversation_thread: updatedThread,
-          last_response_sent: generatedResponse.content,
-          last_response_sent_at: new Date().toISOString(),
-          needs_approval: false,
-        });
+          if (sendLock.sendLogId) await markSendComplete(sendLock.sendLogId, sendResult.message_id);
 
-        autoSendResult = { sent: true };
-        console.log(`Auto-sent response to ${reply.lead_email} via generate endpoint`);
-      } catch (sendError: any) {
-        console.error('Error auto-sending reply:', sendError);
-        autoSendResult = {
-          sent: false,
-          error: sendError.message || 'Failed to auto-send',
-        };
+          // Update lead record with sent status
+          const updatedThread: ConversationMessage[] = [
+            ...interestedLead.conversation_thread,
+            {
+              role: 'agent',
+              content: generatedResponse.content,
+              timestamp: new Date().toISOString(),
+              emailbison_message_id: sendResult.message_id,
+            },
+          ];
+
+          await updateInterestedLead(interestedLead.id, {
+            conversation_thread: updatedThread,
+            last_response_sent: generatedResponse.content,
+            last_response_sent_at: new Date().toISOString(),
+            needs_approval: false,
+          });
+
+          autoSendResult = { sent: true };
+          console.log(`[Generate] Auto-sent response to ${reply.lead_email}`);
+        } catch (sendError: any) {
+          console.error('[Generate] Error auto-sending reply:', sendError);
+          if (sendLock.sendLogId) await markSendFailed(sendLock.sendLogId, sendError.message || 'Unknown error');
+          autoSendResult = {
+            sent: false,
+            error: sendError.message || 'Failed to auto-send',
+          };
+        }
       }
     }
 

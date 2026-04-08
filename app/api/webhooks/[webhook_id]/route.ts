@@ -254,6 +254,9 @@ export async function POST(
         reply_id: reply.id,
         from: reply.from_email_address,
         subject: reply.subject,
+        ai_provider: agent.ai_provider || 'openai (default)',
+        ai_model: agent.ai_model || 'gpt-4o-mini (default)',
+        has_anthropic_key: !!agent.anthropic_api_key,
       }
     );
 
@@ -283,11 +286,46 @@ export async function POST(
       });
     }
 
-    // Check if already processed for THIS agent (use both id and uuid)
-    const existingById = await getReplyByEmailBisonId(reply.id, agent.id);
-    const existingByUuid = reply.uuid ? await getReplyByEmailBisonId(reply.uuid, agent.id) : null;
-    if (existingById || existingByUuid) {
-      console.log(`[Webhook] Reply ${reply.id} already processed`);
+    // ── Workspace isolation check ──
+    // Verify the reply's workspace matches the agent's configured workspace.
+    // This prevents cross-workspace contamination when webhook URLs are misconfigured.
+    if (platform === 'emailbison' && agent.emailbison_workspace_id) {
+      const payloadWorkspaceId = webhookData.event?.workspace_id?.toString();
+      if (payloadWorkspaceId && payloadWorkspaceId !== agent.emailbison_workspace_id) {
+        console.error(
+          `[Webhook] WORKSPACE MISMATCH: Reply workspace_id "${payloadWorkspaceId}" ` +
+            `does not match agent "${agent.name}" workspace_id "${agent.emailbison_workspace_id}". ` +
+            `Rejecting to prevent cross-workspace contamination. ` +
+            `Reply from: ${reply.from_email_address}, subject: ${reply.subject}`
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Workspace mismatch — this reply belongs to a different workspace than the agent configured at this webhook URL.',
+            payload_workspace_id: payloadWorkspaceId,
+            agent_workspace_id: agent.emailbison_workspace_id,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // ── Global duplicate check (cross-agent) ──
+    // Prevent the same reply from being processed by ANY agent, not just this one.
+    // This catches misconfigured webhooks where multiple agents receive the same reply.
+    const globalExistingById = await getReplyByEmailBisonId(reply.id);
+    const globalExistingByUuid = reply.uuid ? await getReplyByEmailBisonId(reply.uuid) : null;
+    if (globalExistingById || globalExistingByUuid) {
+      const existingAgentId = (globalExistingById || globalExistingByUuid)?.agent_id;
+      if (existingAgentId !== agent.id) {
+        console.error(
+          `[Webhook] CROSS-AGENT DUPLICATE: Reply ${reply.id} was already processed by agent ${existingAgentId}, ` +
+            `but arrived again at agent ${agent.id} (${agent.name}). This indicates a webhook misconfiguration. ` +
+            `Reply from: ${reply.from_email_address}`
+        );
+      } else {
+        console.log(`[Webhook] Reply ${reply.id} already processed by this agent`);
+      }
       return NextResponse.json({
         success: true,
         message: 'Reply already processed',
@@ -536,6 +574,10 @@ export async function POST(
       // Extract original outbound email context (if available from quoted text)
       const originalOutboundMessage = conversationThread.find(msg => msg.role === 'agent');
       const originalEmailContext = originalOutboundMessage?.content;
+
+      const effectiveProvider = (agent.ai_provider === 'anthropic' && agent.anthropic_api_key) ? 'anthropic' : 'openai';
+      const effectiveModel = agent.ai_model || (effectiveProvider === 'anthropic' ? 'claude-sonnet-4-5-20250514' : 'gpt-4o-mini');
+      console.log(`[Webhook] Generating AI response for ${reply.from_email_address} using ${effectiveProvider}/${effectiveModel}`);
 
       const generatedResponse = await generateResponse({
         leadEmail: reply.from_email_address,
