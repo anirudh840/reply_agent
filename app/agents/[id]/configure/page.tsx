@@ -51,6 +51,9 @@ export default function ConfigureAgentPage() {
     { delay_days: 10, type: 'close_up', instructions: '' },
   ]);
 
+  // Workspace ID
+  const [emailbisonWorkspaceId, setEmailbisonWorkspaceId] = useState('');
+
   // API Keys (empty by default — only saved if user enters a new value)
   const [platformApiKey, setPlatformApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
@@ -135,6 +138,9 @@ export default function ConfigureAgentPage() {
           setUseDefaultSequence(false);
           setCustomSequence(followup.steps);
         }
+
+        // Workspace ID
+        setEmailbisonWorkspaceId(agentData.emailbison_workspace_id || '');
 
         // API Keys — DON'T show actual keys; just track whether they exist
         setHasPlatformKey(!!agentData.emailbison_api_key);
@@ -301,6 +307,8 @@ export default function ConfigureAgentPage() {
               type: 'custom',
               steps: customSequence,
             },
+        // Workspace ID
+        emailbison_workspace_id: emailbisonWorkspaceId || null,
         // AI Provider & Model
         ai_provider: aiProvider,
         ai_model: aiModel,
@@ -493,147 +501,176 @@ export default function ConfigureAgentPage() {
           </CardContent>
         </Card>
 
-        {/* API Keys */}
+        {/* Platform & AI Configuration */}
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>API Keys</CardTitle>
-            <CardDescription>Update your platform and OpenAI API keys. Leave blank to keep existing keys.</CardDescription>
+            <CardTitle>Platform & AI Configuration</CardTitle>
+            <CardDescription>Manage your platform connection, AI provider, and API keys. Leave key fields blank to keep existing keys.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="block text-sm font-medium">
-                  {PLATFORM_DISPLAY_NAMES[agent.platform || 'emailbison'] || 'Platform'} API Key
-                </label>
-                {hasPlatformKey && !platformApiKey && (
-                  <Badge variant="secondary" className="text-xs">Key set</Badge>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type={showPlatformKey ? 'text' : 'password'}
-                  value={platformApiKey}
-                  onChange={(e) => setPlatformApiKey(e.target.value)}
-                  placeholder={hasPlatformKey ? 'Enter new key to replace existing' : 'Enter platform API key'}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowPlatformKey(!showPlatformKey)}
-                  className="px-3"
-                >
-                  {showPlatformKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-              {hasPlatformKey && (
-                <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
-              )}
-            </div>
+          <CardContent className="space-y-6">
 
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="block text-sm font-medium">OpenAI API Key</label>
-                {hasOpenaiKey && !openaiApiKey && (
-                  <Badge variant="secondary" className="text-xs">Key set</Badge>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type={showOpenaiKey ? 'text' : 'password'}
-                  value={openaiApiKey}
-                  onChange={(e) => setOpenaiApiKey(e.target.value)}
-                  placeholder={hasOpenaiKey ? 'Enter new key to replace existing' : 'Enter OpenAI API key'}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                  className="px-3"
-                >
-                  {showOpenaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-              {hasOpenaiKey && (
-                <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* AI Provider & Model */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>AI Provider & Model</CardTitle>
-            <CardDescription>Choose which AI provider and model to use for response generation and categorization.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">AI Provider</label>
-              <select
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={aiProvider}
-                onChange={(e) => {
-                  const provider = e.target.value as AIProvider;
-                  setAiProvider(provider);
-                  // Auto-select first model for the new provider
-                  setAiModel(AI_MODELS[provider][0].id);
-                }}
-              >
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic (Claude)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Model</label>
-              <select
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={aiModel}
-                onChange={(e) => setAiModel(e.target.value)}
-              >
-                {AI_MODELS[aiProvider].map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                {aiProvider === 'openai'
-                  ? 'OpenAI API key is used for both completions and embeddings.'
-                  : 'Anthropic API key is used for completions. OpenAI key is still required for embeddings (RAG search).'}
-              </p>
-            </div>
-
-            {aiProvider === 'anthropic' && (
+            {/* Sub-section: Platform Connection */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">Platform Connection</h3>
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <label className="block text-sm font-medium">Anthropic API Key</label>
-                  {hasAnthropicKey && !anthropicApiKey && (
+                  <label className="block text-sm font-medium">
+                    {PLATFORM_DISPLAY_NAMES[agent.platform || 'emailbison'] || 'Platform'} API Key
+                  </label>
+                  {hasPlatformKey && !platformApiKey && (
                     <Badge variant="secondary" className="text-xs">Key set</Badge>
                   )}
                 </div>
                 <div className="flex gap-2">
                   <Input
-                    type={showAnthropicKey ? 'text' : 'password'}
-                    value={anthropicApiKey}
-                    onChange={(e) => setAnthropicApiKey(e.target.value)}
-                    placeholder={hasAnthropicKey ? 'Enter new key to replace existing' : 'Enter Anthropic API key (sk-ant-...)'}
+                    type={showPlatformKey ? 'text' : 'password'}
+                    value={platformApiKey}
+                    onChange={(e) => setPlatformApiKey(e.target.value)}
+                    placeholder={hasPlatformKey ? 'Enter new key to replace existing' : 'Enter platform API key'}
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                    onClick={() => setShowPlatformKey(!showPlatformKey)}
                     className="px-3"
                   >
-                    {showAnthropicKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPlatformKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
-                {hasAnthropicKey && (
+                {hasPlatformKey && (
                   <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
                 )}
               </div>
-            )}
+
+              {/* Workspace ID - only for EmailBison */}
+              {(agent.platform === 'emailbison' || !agent.platform) && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Workspace ID</label>
+                  <Input
+                    value={emailbisonWorkspaceId}
+                    onChange={(e) => setEmailbisonWorkspaceId(e.target.value)}
+                    placeholder="e.g., ws_abc123 (from EmailBison workspace settings)"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Found in EmailBison → Settings. Required for multi-workspace isolation to prevent cross-client reply routing.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Sub-section: AI Provider & Model */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">AI Provider & Model</h3>
+              <div>
+                <label className="block text-sm font-medium mb-2">AI Provider</label>
+                <select
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value={aiProvider}
+                  onChange={(e) => {
+                    const provider = e.target.value as AIProvider;
+                    setAiProvider(provider);
+                    setAiModel(AI_MODELS[provider][0].id);
+                  }}
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Model</label>
+                <select
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                >
+                  {AI_MODELS[aiProvider].map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {aiProvider === 'anthropic' && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium">Anthropic API Key</label>
+                    {hasAnthropicKey && !anthropicApiKey && (
+                      <Badge variant="secondary" className="text-xs">Key set</Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type={showAnthropicKey ? 'text' : 'password'}
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      placeholder={hasAnthropicKey ? 'Enter new key to replace existing' : 'Enter Anthropic API key (sk-ant-...)'}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                      className="px-3"
+                    >
+                      {showAnthropicKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {hasAnthropicKey && (
+                    <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Sub-section: Embeddings & Search (RAG) */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">Embeddings & Search (RAG)</h3>
+
+              {aiProvider === 'anthropic' && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <div className="flex gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-amber-800">
+                      OpenAI API key is required even when using Anthropic for responses. It powers the knowledge base embeddings and semantic search (RAG) that help the AI write contextually accurate replies.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="block text-sm font-medium">OpenAI API Key</label>
+                  {hasOpenaiKey && !openaiApiKey && (
+                    <Badge variant="secondary" className="text-xs">Key set</Badge>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type={showOpenaiKey ? 'text' : 'password'}
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder={hasOpenaiKey ? 'Enter new key to replace existing' : 'Enter OpenAI API key'}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                    className="px-3"
+                  >
+                    {showOpenaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {hasOpenaiKey && (
+                  <p className="mt-1 text-xs text-gray-500">A key is already configured. Enter a new one only if you need to change it.</p>
+                )}
+                {aiProvider === 'openai' && (
+                  <p className="mt-1 text-xs text-gray-500">Used for both AI responses and knowledge base embeddings.</p>
+                )}
+              </div>
+            </div>
+
           </CardContent>
         </Card>
 

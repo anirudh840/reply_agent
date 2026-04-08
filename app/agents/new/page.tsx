@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, ArrowRight, Loader2, Plus, Trash2, Check, Globe, TestTube2, X } from 'lucide-react';
-import { TIMEZONES, PLATFORM_DISPLAY_NAMES } from '@/lib/constants';
+import { TIMEZONES, PLATFORM_DISPLAY_NAMES, AI_MODELS } from '@/lib/constants';
+import type { AIProvider } from '@/lib/constants';
 import type { PlatformType } from '@/lib/platforms/types';
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
@@ -25,7 +26,11 @@ export default function NewAgentPage() {
   const [platformInstanceUrl, setPlatformInstanceUrl] = useState('');
   const [name, setName] = useState('');
   const [emailbisonApiKey, setEmailbisonApiKey] = useState('');
+  const [emailbisonWorkspaceId, setEmailbisonWorkspaceId] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [aiProvider, setAiProvider] = useState<AIProvider>('openai');
+  const [aiModel, setAiModel] = useState(AI_MODELS.openai[0].id);
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
 
   // Step 2b: Slack Integration (optional)
   const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
@@ -294,8 +299,12 @@ export default function NewAgentPage() {
         timezone,
         platform,
         platform_instance_url: platform === 'emailbison' && platformInstanceUrl ? platformInstanceUrl : undefined,
+        emailbison_workspace_id: platform === 'emailbison' && emailbisonWorkspaceId ? emailbisonWorkspaceId : undefined,
         emailbison_api_key: emailbisonApiKey,
         openai_api_key: openaiApiKey,
+        ai_provider: aiProvider,
+        ai_model: aiModel,
+        anthropic_api_key: aiProvider === 'anthropic' && anthropicApiKey ? anthropicApiKey : undefined,
         knowledge_base: {
           company_info: companyInfo,
           product_description: productDescription,
@@ -364,7 +373,7 @@ export default function NewAgentPage() {
       case 1:
         return true;
       case 2:
-        return name.trim() && emailbisonApiKey.trim() && openaiApiKey.trim();
+        return name.trim() && emailbisonApiKey.trim() && openaiApiKey.trim() && (aiProvider !== 'anthropic' || anthropicApiKey.trim());
       case 3:
         return companyInfo.trim() || productDescription.trim();
       case 4:
@@ -520,9 +529,78 @@ export default function NewAgentPage() {
               </div>
             )}
 
+            {/* Workspace ID - only for EmailBison */}
+            {platform === 'emailbison' && (
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Workspace ID
+                </label>
+                <Input
+                  placeholder="e.g., ws_abc123 (from EmailBison workspace settings)"
+                  value={emailbisonWorkspaceId}
+                  onChange={(e) => setEmailbisonWorkspaceId(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Found in EmailBison → Settings. Required for multi-workspace isolation to prevent cross-client reply routing.
+                </p>
+              </div>
+            )}
+
+            {/* AI Provider & Model */}
+            <div className="border-t pt-4 mt-2">
+              <h3 className="mb-3 text-sm font-semibold text-gray-700">AI Provider & Model</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium">AI Provider</label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    value={aiProvider}
+                    onChange={(e) => {
+                      const provider = e.target.value as AIProvider;
+                      setAiProvider(provider);
+                      setAiModel(AI_MODELS[provider][0].id);
+                    }}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Model</label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                  >
+                    {AI_MODELS[aiProvider].map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {aiProvider === 'anthropic' && (
+                  <div>
+                    <label className="mb-2 block text-sm font-medium">Anthropic API Key</label>
+                    <Input
+                      required
+                      type="password"
+                      placeholder="Enter your Anthropic API key (sk-ant-...)"
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Get from: console.anthropic.com/settings/keys
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* OpenAI API Key - always required for embeddings */}
             <div>
               <label className="mb-2 block text-sm font-medium">
-                OpenAI API Key
+                OpenAI API Key{aiProvider === 'anthropic' ? ' (required for embeddings)' : ''}
               </label>
               <Input
                 required
@@ -532,7 +610,9 @@ export default function NewAgentPage() {
                 onChange={(e) => setOpenaiApiKey(e.target.value)}
               />
               <p className="mt-1 text-xs text-gray-500">
-                Get from: platform.openai.com/api-keys
+                {aiProvider === 'anthropic'
+                  ? 'Required for knowledge base embeddings and semantic search (RAG), even when using Anthropic for responses.'
+                  : 'Get from: platform.openai.com/api-keys'}
               </p>
             </div>
 
