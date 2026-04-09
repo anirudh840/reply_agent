@@ -17,9 +17,19 @@ export async function GET(
     const { id } = await params;
     const agent = await getAgent(id);
 
+    // Strip sensitive API keys from response — only expose boolean flags
+    // indicating whether each key is configured.
+    const { emailbison_api_key, openai_api_key, anthropic_api_key, booking_api_key, ...safeAgent } = agent;
+
     return NextResponse.json({
       success: true,
-      data: agent,
+      data: {
+        ...safeAgent,
+        has_platform_key: !!emailbison_api_key,
+        has_openai_key: !!openai_api_key,
+        has_anthropic_key: !!anthropic_api_key,
+        has_booking_key: !!booking_api_key,
+      },
     });
   } catch (error: any) {
     console.error('Error fetching agent:', error);
@@ -44,6 +54,33 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
+
+    // ── Validation ──
+    // Prevent empty strings from wiping API keys
+    const sensitiveKeys = ['emailbison_api_key', 'openai_api_key', 'anthropic_api_key'] as const;
+    for (const key of sensitiveKeys) {
+      if (key in body && typeof body[key] === 'string' && body[key].trim() === '') {
+        delete body[key]; // Treat empty string as "don't update"
+      }
+    }
+
+    // Validate ai_provider / ai_model compatibility
+    if (body.ai_provider || body.ai_model) {
+      const { AI_MODELS } = await import('@/lib/constants');
+      const provider = body.ai_provider || (await getAgent(id)).ai_provider || 'openai';
+      const model = body.ai_model;
+      if (model && !AI_MODELS[provider as keyof typeof AI_MODELS]?.some((m: { id: string }) => m.id === model)) {
+        return NextResponse.json(
+          { success: false, error: `Model "${model}" is not compatible with provider "${provider}"` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Prevent clearing workspace_id with empty string — use null explicitly
+    if ('emailbison_workspace_id' in body && body.emailbison_workspace_id === '') {
+      body.emailbison_workspace_id = null;
+    }
 
     // Update agent
     const agent = await updateAgent(id, body);
@@ -78,9 +115,18 @@ export async function PATCH(
       }
     }
 
+    // Strip sensitive API keys from response
+    const { emailbison_api_key, openai_api_key, anthropic_api_key, booking_api_key, ...safeAgent } = agent;
+
     return NextResponse.json({
       success: true,
-      data: agent,
+      data: {
+        ...safeAgent,
+        has_platform_key: !!emailbison_api_key,
+        has_openai_key: !!openai_api_key,
+        has_anthropic_key: !!anthropic_api_key,
+        has_booking_key: !!booking_api_key,
+      },
       booking_webhook_registered: bookingWebhookRegistered,
       message: 'Agent updated successfully',
     });

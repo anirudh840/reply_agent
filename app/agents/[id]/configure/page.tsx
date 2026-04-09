@@ -143,9 +143,9 @@ export default function ConfigureAgentPage() {
         setEmailbisonWorkspaceId(agentData.emailbison_workspace_id || '');
 
         // API Keys — DON'T show actual keys; just track whether they exist
-        setHasPlatformKey(!!agentData.emailbison_api_key);
-        setHasOpenaiKey(!!agentData.openai_api_key);
-        setHasAnthropicKey(!!agentData.anthropic_api_key);
+        setHasPlatformKey(agentData.has_platform_key ?? !!agentData.emailbison_api_key);
+        setHasOpenaiKey(agentData.has_openai_key ?? !!agentData.openai_api_key);
+        setHasAnthropicKey(agentData.has_anthropic_key ?? !!agentData.anthropic_api_key);
         setPlatformApiKey(''); // Keep empty for security
         setOpenaiApiKey('');   // Keep empty for security
         setAnthropicApiKey('');

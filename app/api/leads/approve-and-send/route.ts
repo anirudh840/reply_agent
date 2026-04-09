@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Guard: don't send to leads that are completed or paused
-    if (lead.conversation_status === 'completed') {
+    // Guard: only allow sends to active leads
+    if (lead.conversation_status !== 'active') {
       return NextResponse.json(
-        { success: false, error: 'Cannot send to a completed lead. Reactivate the lead first.' },
+        { success: false, error: `Cannot send to a lead with status '${lead.conversation_status}'. Change status to active first.` },
         { status: 400 }
       );
     }

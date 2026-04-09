@@ -166,6 +166,24 @@ export async function createInterestedLead(
   return data as InterestedLead;
 }
 
+/**
+ * Insert-only version of createInterestedLead — silently skips if the lead
+ * already exists. Used by crash recovery to avoid overwriting live lead data.
+ */
+export async function createInterestedLeadIfNotExists(
+  lead: Omit<InterestedLead, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabaseAdmin
+    .from('interested_leads')
+    // @ts-ignore - Supabase generated types issue
+    .upsert(lead, { onConflict: 'agent_id,lead_email', ignoreDuplicates: true })
+    .select()
+    .single();
+
+  if (error) throw new DatabaseError('Failed to create interested lead (insert-only)', error);
+  return data as InterestedLead;
+}
+
 export async function getInterestedLead(id: string) {
   const { data, error } = await supabaseAdmin
     .from('interested_leads')

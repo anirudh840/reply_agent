@@ -8,6 +8,7 @@ import { generateResponse } from '@/lib/openai/generator';
 import {
   createReply,
   createInterestedLead,
+  createInterestedLeadIfNotExists,
   getReplyByEmailBisonId,
   updateInterestedLead,
   getAllAgents,
@@ -681,7 +682,7 @@ export async function POST(
       // Determine if approval is needed and why
       const isLowConfidence = generatedResponse.confidence_score <= agent.confidence_threshold;
       const isHumanInLoop = agent.mode === 'human_in_loop';
-      const needsApproval = isHumanInLoop || isLowConfidence || forceManualApprovalForBooking;
+      let needsApproval = isHumanInLoop || isLowConfidence || forceManualApprovalForBooking;
 
       let approvalReason: string | undefined;
       if (needsApproval) {
@@ -744,6 +745,30 @@ export async function POST(
       if (needsApproval) {
         console.log(`[Webhook] Lead ${leadRecord.id} marked for approval`);
       } else {
+        // ── Lead-level send cooldown ──
+        // If a response was already sent to this lead in the last 60 seconds,
+        // hold for approval instead of auto-sending. This prevents duplicate emails
+        // when multiple webhooks arrive for the same lead in quick succession
+        // (e.g., email forwarding, CC, platform retries).
+        if (leadRecord.last_response_sent_at) {
+          const lastSentAt = new Date(leadRecord.last_response_sent_at).getTime();
+          const sixtySecondsAgo = Date.now() - 60 * 1000;
+          if (lastSentAt > sixtySecondsAgo) {
+            console.log(
+              `[Webhook] Lead ${leadRecord.id} already received a response ${Math.round((Date.now() - lastSentAt) / 1000)}s ago, holding for approval`
+            );
+            await updateInterestedLead(leadRecord.id, {
+              last_response_generated: generatedResponse.content,
+              response_confidence_score: generatedResponse.confidence_score,
+              needs_approval: true,
+              approval_reason: 'Multiple replies detected within 60 seconds — held to prevent duplicate sends. Review and send manually if needed.',
+            }).catch(() => {});
+            // Skip auto-send, fall through to Slack notification
+            needsApproval = true;
+          }
+        }
+
+        if (!needsApproval) {
         // Auto-send response — split into phases so failures are recorded, not swallowed
         const platformClient = createClientForAgent(agent);
 
@@ -843,6 +868,7 @@ export async function POST(
             }).catch(() => {});
           }
         }
+        } // end if (!needsApproval) — lead-level cooldown
       }
 
       // Send Slack notification (non-blocking)
@@ -914,9 +940,10 @@ export async function POST(
       // If after() crashed before creating an interested_lead, the reply record exists
       // but the lead is invisible. Create a minimal interested_lead so it surfaces.
       try {
-        const existingLeadCheck = await getInterestedLeadByEmail(agent.id, reply.from_email_address);
-        if (!existingLeadCheck) {
-          await createInterestedLead({
+        // Use insert-only (ignoreDuplicates: true) to avoid overwriting an existing
+        // lead that may already have an approved response, sent messages, etc.
+        {
+          await createInterestedLeadIfNotExists({
             agent_id: agent.id,
             initial_reply_id: replyRecord.id,
             lead_email: reply.from_email_address,
@@ -935,7 +962,7 @@ export async function POST(
             followup_stage: 0,
           });
           console.log(`[Webhook] Crash recovery: created fallback lead record for ${reply.from_email_address}`);
-        }
+        } // end insert-only block
       } catch (recoveryError) {
         console.error('[Webhook] Crash recovery also failed:', recoveryError);
       }
