@@ -551,11 +551,22 @@ export async function POST(
 
     // Update existing lead's thread immediately
     if (existingLead) {
-      await updateInterestedLead(existingLead.id, {
+      const leadUpdate: Record<string, any> = {
         conversation_thread: fullThread,
         last_lead_reply_at: reply.date_received || new Date().toISOString(),
         conversation_status: 'active',
-      });
+      };
+
+      // Reset followup stage if lead was unresponsive/completed and is now replying again.
+      // Without this, the scheduler would immediately re-mark them unresponsive because
+      // stage > sequence length.
+      if (existingLead.conversation_status === 'unresponsive' || existingLead.conversation_status === 'completed') {
+        leadUpdate.followup_stage = 0;
+        leadUpdate.next_followup_due_at = null; // Will be set after response is sent
+        console.log(`[Webhook] Resetting followup stage for ${existingLead.lead_email} (was ${existingLead.conversation_status})`);
+      }
+
+      await updateInterestedLead(existingLead.id, leadUpdate);
       console.log(`[Webhook] Updated existing lead ${existingLead.id} with new reply`);
     }
 
@@ -898,6 +909,51 @@ export async function POST(
 
     } catch (afterError: any) {
       console.error('[Webhook] Error in after() processing:', afterError);
+
+      // ── Crash recovery: ensure the lead is visible in the inbox ──
+      // If after() crashed before creating an interested_lead, the reply record exists
+      // but the lead is invisible. Create a minimal interested_lead so it surfaces.
+      try {
+        const existingLeadCheck = await getInterestedLeadByEmail(agent.id, reply.from_email_address);
+        if (!existingLeadCheck) {
+          await createInterestedLead({
+            agent_id: agent.id,
+            initial_reply_id: replyRecord.id,
+            lead_email: reply.from_email_address,
+            lead_name: reply.from_name,
+            lead_metadata: reply.lead_data,
+            conversation_thread: [{
+              role: 'lead' as const,
+              content: reply.text_body || '',
+              timestamp: reply.date_received || new Date().toISOString(),
+              emailbison_message_id: reply.id,
+            }],
+            last_lead_reply_at: reply.date_received || new Date().toISOString(),
+            needs_approval: true,
+            approval_reason: `Processing error: ${afterError.message || 'Unknown error'}. This lead needs manual review — AI categorization and response generation failed.`,
+            conversation_status: 'active',
+            followup_stage: 0,
+          });
+          console.log(`[Webhook] Crash recovery: created fallback lead record for ${reply.from_email_address}`);
+        }
+      } catch (recoveryError) {
+        console.error('[Webhook] Crash recovery also failed:', recoveryError);
+      }
+
+      // Notify via Slack if configured
+      if (agent.slack_webhook_url) {
+        try {
+          await sendSlackNotification(agent.slack_webhook_url, {
+            leadName: reply.from_name,
+            leadEmail: reply.from_email_address,
+            leadMessage: (reply.text_body || '').slice(0, 200),
+            categorization: { is_interested: true, confidence_score: 0, reasoning: 'Processing failed — needs manual review' },
+            responseAction: 'needs_approval',
+            agentName: agent.name,
+            inboxUrl: '',
+          });
+        } catch { /* best effort */ }
+      }
     }
     }); // end after()
 

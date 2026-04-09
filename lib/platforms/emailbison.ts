@@ -188,7 +188,7 @@ export class EmailBisonClient implements PlatformClient {
     console.log('[EmailBison] sendReply raw response:', JSON.stringify(response));
 
     // Validate the response body for failure indicators
-    if (response?.success === false || response?.status === 'failed' || response?.error) {
+    if (response?.success === false || response?.status === 'failed' || (response?.error && response.error !== null)) {
       throw new PlatformError(
         response?.error || response?.message || 'EmailBison API returned failure in response body',
         'emailbison',
@@ -197,9 +197,21 @@ export class EmailBisonClient implements PlatformClient {
       );
     }
 
+    // Validate that we got a real message_id back — null/undefined means the email
+    // was likely not delivered, even if the API returned 200.
+    const messageId = response?.message_id || response?.id?.toString();
+    if (!messageId) {
+      throw new PlatformError(
+        'EmailBison API returned success but no message_id — email may not have been delivered',
+        'emailbison',
+        200,
+        response
+      );
+    }
+
     return {
       success: true,
-      message_id: response?.message_id || response?.id?.toString(),
+      message_id: messageId,
     };
   }
 

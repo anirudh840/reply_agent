@@ -158,7 +158,7 @@ export async function createInterestedLead(
   const { data, error } = await supabaseAdmin
     .from('interested_leads')
     // @ts-ignore - Supabase generated types issue
-    .insert(lead)
+    .upsert(lead, { onConflict: 'agent_id,lead_email', ignoreDuplicates: false })
     .select()
     .single();
 

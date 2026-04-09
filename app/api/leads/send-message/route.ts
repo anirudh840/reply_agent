@@ -36,6 +36,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Guard: don't send to leads that are completed or paused
+    if (lead.conversation_status === 'completed') {
+      return NextResponse.json(
+        { success: false, error: 'Cannot send to a completed lead. Reactivate the lead first.' },
+        { status: 400 }
+      );
+    }
+
     // Get agent details
     const agent = await getAgent(lead.agent_id);
 
@@ -58,12 +66,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Acquire send lock (manual sends use time-bucketed key for double-click protection)
+    // Acquire send lock (keyed to the specific lead message being replied to,
+    // so only one reply per lead message is allowed regardless of timing)
     const sendLock = await acquireSendLock({
       agentId: agent.id,
       leadId: lead.id,
       leadEmail: lead.lead_email,
-      idempotencyKey: `manual:${lead_id}:${Math.floor(Date.now() / 10000)}`,
+      idempotencyKey: `manual-reply-to:${lastLeadMessage.emailbison_message_id}`,
       sendSource: 'manual',
       messageContent: message,
     });

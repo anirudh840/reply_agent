@@ -77,16 +77,16 @@ Respond in JSON format with:
   "reasoning": "Brief explanation of your categorization"
 }`;
 
-  const response = await aiClient.generateCompletion({
-    messages: [
-      { role: 'system', content: CATEGORIZATION_SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature: 0.3,
-    response_format: { type: 'json_object' },
-  });
-
   try {
+    const response = await aiClient.generateCompletion({
+      messages: [
+        { role: 'system', content: CATEGORIZATION_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
     const result = JSON.parse(response.content);
 
     return {
@@ -95,13 +95,16 @@ Respond in JSON format with:
       confidence_score: result.confidence_score || 5,
       reasoning: result.reasoning || 'No reasoning provided',
     };
-  } catch (error) {
-    // Fallback if JSON parsing fails
+  } catch (error: any) {
+    // On ANY failure (AI call timeout, auth error, JSON parse, network error),
+    // default to "interested" so the lead surfaces in the inbox for manual review.
+    // It's better to review a false positive than silently drop a real lead.
+    console.error('[Categorizer] AI categorization failed, defaulting to interested:', error.message || error);
     return {
-      is_truly_interested: false,
+      is_truly_interested: true,
       corrected_status: REPLY_STATUS.OTHER,
       confidence_score: 0,
-      reasoning: 'Failed to parse AI response',
+      reasoning: `AI categorization failed (${error.message || 'unknown error'}). Defaulting to interested for manual review.`,
     };
   }
 }

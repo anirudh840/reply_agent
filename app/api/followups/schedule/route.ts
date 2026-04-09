@@ -99,6 +99,32 @@ export async function POST(request: NextRequest) {
               followupStage: nextStage,
             });
 
+            // ── Human-in-loop check ──
+            // For human_in_loop agents, store the followup for approval instead of auto-sending.
+            const isHumanInLoop = agent.mode === 'human_in_loop';
+            const isLowConfidence = (followup.confidence_score ?? 10) <= agent.confidence_threshold;
+            const needsApproval = isHumanInLoop || isLowConfidence;
+
+            if (needsApproval) {
+              // Calculate next follow-up date so the scheduler doesn't re-process this lead
+              // until the human approves and the followup stage advances.
+              await updateInterestedLead(lead.id, {
+                last_response_generated: followup.content,
+                needs_approval: true,
+                approval_reason: isHumanInLoop
+                  ? `Follow-up #${nextStage} requires approval (Human-in-Loop mode)`
+                  : `Follow-up #${nextStage} confidence below threshold`,
+                // Clear next_followup_due_at so cron doesn't re-fire while awaiting approval
+                next_followup_due_at: undefined,
+              });
+
+              console.log(
+                `[Followup] Lead ${lead.lead_email} follow-up #${nextStage} held for approval (${isHumanInLoop ? 'human_in_loop' : 'low confidence'})`
+              );
+              results.followups_sent++; // Count as processed (held for approval)
+              continue;
+            }
+
             // Create platform client
             const emailbisonClient = createClientForAgent(agent);
 

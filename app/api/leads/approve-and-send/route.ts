@@ -36,6 +36,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Guard: don't send to leads that are completed or paused
+    if (lead.conversation_status === 'completed') {
+      return NextResponse.json(
+        { success: false, error: 'Cannot send to a completed lead. Reactivate the lead first.' },
+        { status: 400 }
+      );
+    }
+
     // Get agent details
     const agent = await getAgent(lead.agent_id);
 
