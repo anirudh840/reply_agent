@@ -715,6 +715,14 @@ export async function POST(
           needs_approval: needsApproval,
           approval_reason: approvalReason,
         };
+        // If the response is held for approval, park the lead by clearing
+        // next_followup_due_at so the followup cron does not fire a scheduled
+        // followup on top of the held reply-response. approve-and-send /
+        // send-message will reschedule correctly using steps[followup_stage]
+        // when the human approves.
+        if (needsApproval) {
+          existingLeadUpdate.next_followup_due_at = null;
+        }
         // If a booking was completed directly, stop followups immediately
         if (bookingCompletedDirectly) {
           existingLeadUpdate.conversation_status = 'completed';
@@ -847,7 +855,7 @@ export async function POST(
             const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
             const nextFollowupDate = firstFollowupConfig
               ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
-              : undefined;
+              : null;
 
             await updateInterestedLead(leadRecord.id, {
               conversation_thread: refreshedThread,

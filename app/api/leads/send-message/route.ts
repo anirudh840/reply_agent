@@ -36,10 +36,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Guard: only allow sends to active leads
-    if (lead.conversation_status !== 'active') {
+    // Guard: block only terminal (booking-confirmed) sends. Any non-completed
+    // status is allowed — the send will reactivate the conversation below.
+    if (lead.conversation_status === 'completed') {
       return NextResponse.json(
-        { success: false, error: `Cannot send to a lead with status '${lead.conversation_status}'. Change status to active first.` },
+        { success: false, error: `Cannot send to a lead with status 'completed' (booking confirmed or sequence closed).` },
         { status: 400 }
       );
     }
@@ -128,11 +129,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Schedule the first followup based on agent's followup sequence
-    const firstFollowupConfig = agent.followup_sequence?.steps?.[0];
-    const nextFollowupDate = firstFollowupConfig
-      ? addDays(new Date(), firstFollowupConfig.delay_days).toISOString()
-      : undefined;
+    // Schedule the next followup based on the lead's current followup_stage.
+    // See approve-and-send/route.ts for semantics: lead.followup_stage is the
+    // index of the most recently generated step; steps[followup_stage] is the
+    // next step to send. Undefined means the sequence is exhausted.
+    const steps = agent.followup_sequence?.steps ?? [];
+    const nextFollowupConfig = steps[lead.followup_stage];
+    const isFinalStage = !nextFollowupConfig;
+    const nextFollowupDate = nextFollowupConfig
+      ? addDays(new Date(), nextFollowupConfig.delay_days).toISOString()
+      : null;
 
     await updateInterestedLead(lead_id, {
       conversation_thread: refreshedThread,
@@ -140,6 +146,7 @@ export async function POST(request: NextRequest) {
       last_response_sent_at: now,
       needs_approval: false,
       next_followup_due_at: nextFollowupDate,
+      conversation_status: isFinalStage ? 'completed' : 'active',
     });
 
     return NextResponse.json({

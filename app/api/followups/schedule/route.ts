@@ -83,10 +83,12 @@ export async function POST(request: NextRequest) {
                 `Lead ${lead.lead_email} has exhausted follow-up sequence`
               );
 
-              // Mark as unresponsive
+              // Mark as completed so approve-and-send / send-message don't refuse
+              // future manual sends. 'unresponsive' was previously used but it
+              // blocked re-engagement via the status guard in those endpoints.
               await updateInterestedLead(lead.id, {
-                conversation_status: 'unresponsive',
-                next_followup_due_at: undefined,
+                conversation_status: 'completed',
+                next_followup_due_at: null,
               });
 
               continue;
@@ -106,16 +108,19 @@ export async function POST(request: NextRequest) {
             const needsApproval = isHumanInLoop || isLowConfidence;
 
             if (needsApproval) {
-              // Calculate next follow-up date so the scheduler doesn't re-process this lead
-              // until the human approves and the followup stage advances.
+              // Advance followup_stage to record that stage N was generated (held, not sent).
+              // Park the lead by clearing next_followup_due_at — it will be rescheduled
+              // when the human approves via approve-and-send, which reads lead.followup_stage
+              // to compute the next due date using steps[followup_stage].
+              // Must use null (not undefined) to actually clear the column in Supabase.
               await updateInterestedLead(lead.id, {
                 last_response_generated: followup.content,
                 needs_approval: true,
                 approval_reason: isHumanInLoop
                   ? `Follow-up #${nextStage} requires approval (Human-in-Loop mode)`
                   : `Follow-up #${nextStage} confidence below threshold`,
-                // Clear next_followup_due_at so cron doesn't re-fire while awaiting approval
-                next_followup_due_at: undefined,
+                followup_stage: nextStage,
+                next_followup_due_at: null,
               });
 
               console.log(
@@ -199,7 +204,7 @@ export async function POST(request: NextRequest) {
               last_response_sent_at: new Date().toISOString(),
               followup_stage: nextStage,
               followup_sent: true,
-              next_followup_due_at: nextFollowupDate?.toISOString() || undefined,
+              next_followup_due_at: nextFollowupDate ? nextFollowupDate.toISOString() : null,
               conversation_status:
                 nextStage >= agent.followup_sequence.steps.length
                   ? 'completed'

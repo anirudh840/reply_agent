@@ -38,6 +38,13 @@ UNDERSTANDING CONTEXT FROM QUOTED TEXT:
 - If the original email asked the lead to reply with a specific keyword (e.g., "Reply 'PC' if interested", "Say 'POC' for details"), and the lead replied with exactly that keyword, this is a STRONG positive signal — mark as interested with confidence 9-10.
 - Short replies like "PC", "POC", "YES", "Sure", "PPC", "NoRetainer" that match a call-to-action keyword in the quoted original email should ALWAYS be categorized as interested.
 
+EXAMPLES (follow these judgments exactly):
+- "Well thank you, but who is Angela?" → interested (confidence 8). The lead is asking a question / showing confusion, which is engagement. Any response that clears up the confusion has a real shot at converting.
+- "No retainer" followed by "Yes am interested pls share details" → interested (confidence 9). The lead is stating a constraint but explicitly asking for details — a direct interest signal.
+- "What if I'm not good at sales? And do you do this for SAAS products?" → interested (confidence 9). Two qualifying questions. Lead is evaluating fit, not rejecting.
+- "Who is this?" → interested (confidence 7). Curiosity about the sender is an engagement signal.
+- "Not interested, please remove me" → not_interested (confidence 10). Explicit rejection + unsubscribe.
+
 Provide your analysis in JSON format.`;
 
 /**
@@ -63,11 +70,9 @@ SUBJECT: ${reply.reply_subject || 'No subject'}
 FULL EMAIL BODY (includes the lead's reply and any quoted original outreach email for context):
 ${reply.reply_body}
 
-PLATFORM STATUS: ${reply.original_status}
-
 IMPORTANT: The body above may contain quoted text from the original outreach email (after "On ... wrote:" or "> " markers). Use this quoted text to understand what call-to-action was presented to the lead. If the lead replied with a keyword that matches the CTA in the original email, this is a strong interest signal.
 
-Determine if this is a genuinely interested lead or a false positive.
+Classify this reply using the rules above. You are the source of truth — do not defer to any external classification.
 
 Respond in JSON format with:
 {
