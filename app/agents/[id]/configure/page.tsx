@@ -120,10 +120,26 @@ export default function ConfigureAgentPage() {
         setValueProps(kb.value_propositions && kb.value_propositions.length > 0 ? kb.value_propositions : ['']);
         setCustomInstructions(kb.custom_instructions || '');
 
-        // Objection Handling
-        const objHandling = agentData.objection_handling || {};
-        if (objHandling.common_objections && objHandling.common_objections.length > 0) {
+        // Objection Handling — handle both formats:
+        //   (a) new:    { common_objections: [{ objection, response }, ...] }
+        //   (b) legacy: { "objection text": "response text", ... }  (Record<string,string>)
+        // Older agents were saved as (b). If we only check (a), the UI renders
+        // empty and the next save wipes everything. Convert (b) → array shape.
+        const objHandling: any = agentData.objection_handling || {};
+        if (Array.isArray(objHandling.common_objections) && objHandling.common_objections.length > 0) {
           setObjections(objHandling.common_objections);
+        } else {
+          const legacyEntries = Object.entries(objHandling).filter(
+            ([k, v]) => k !== 'common_objections' && typeof v === 'string' && (v as string).trim()
+          );
+          if (legacyEntries.length > 0) {
+            setObjections(
+              legacyEntries.map(([objection, response]) => ({
+                objection: String(objection),
+                response: String(response),
+              }))
+            );
+          }
         }
 
         // Case Studies
@@ -291,7 +307,12 @@ export default function ConfigureAgentPage() {
           custom_instructions: customInstructions,
         },
         objection_handling: {
-          common_objections: objections.filter((o) => o.objection.trim()),
+          // Keep rows where either field is populated — a partially-filled row
+          // (objection typed but response still empty, or vice versa) must not
+          // be silently dropped on save or the user loses their in-progress work.
+          common_objections: objections.filter(
+            (o) => (o.objection || '').trim() || (o.response || '').trim()
+          ),
         },
         case_studies: caseStudies.filter((c) => c.title.trim()),
         followup_sequence: useDefaultSequence

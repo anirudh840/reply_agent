@@ -311,12 +311,14 @@ export default function NewAgentPage() {
           value_propositions: valueProps.filter((v) => v.trim()),
           custom_instructions: customInstructions,
         },
-        objection_handling: objections.reduce((acc, obj) => {
-          if (obj.objection.trim()) {
-            acc[obj.objection] = obj.response;
-          }
-          return acc;
-        }, {} as Record<string, string>),
+        objection_handling: {
+          // Use the array format consistently with the configure page so
+          // duplicate-keyed entries aren't silently clobbered and partial
+          // rows (one field filled, one empty) aren't silently dropped.
+          common_objections: objections.filter(
+            (o) => (o.objection || '').trim() || (o.response || '').trim()
+          ),
+        },
         case_studies: caseStudies.filter((cs) => cs.title.trim()),
         followup_sequence: useDefaultSequence
           ? {

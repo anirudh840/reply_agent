@@ -1100,10 +1100,10 @@ export default function InboxPage() {
                           <div key={`${message.role}-${message.timestamp}-${index}`} className="flex gap-3 relative z-10">
                             {/* Timeline Node */}
                             <div className={`flex-shrink-0 h-12 w-12 rounded-full border-4 border-gray-50 flex items-center justify-center ${
-                              isLead ? (isQuoted ? 'bg-blue-50' : 'bg-blue-100') : 'bg-gray-200'
+                              isLead ? 'bg-blue-100' : 'bg-gray-200'
                             }`}>
                               {isLead ? (
-                                <User className={`h-5 w-5 ${isQuoted ? 'text-blue-400' : 'text-blue-600'}`} />
+                                <User className="h-5 w-5 text-blue-600" />
                               ) : (
                                 <Bot className="h-5 w-5 text-gray-600" />
                               )}
@@ -1111,11 +1111,9 @@ export default function InboxPage() {
 
                             {/* Message Card */}
                             <div className="flex-1">
-                              <div className={`rounded-lg border shadow-sm bg-white overflow-hidden ${
-                                isQuoted ? 'opacity-75 border-dashed' : ''
-                              }`}>
+                              <div className="rounded-lg border shadow-sm bg-white overflow-hidden">
                                 {/* Colored Header */}
-                                <div className={`p-3 ${isLead ? (isQuoted ? 'bg-blue-25' : 'bg-blue-50') : 'bg-gray-50'}`}>
+                                <div className={`p-3 ${isLead ? 'bg-blue-50' : 'bg-gray-50'}`}>
                                   <div className="flex items-start justify-between">
                                     <div className="flex-1">
                                       <div className="flex items-center gap-2 mb-1">
