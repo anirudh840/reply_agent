@@ -81,7 +81,16 @@ class AnthropicCompletionClient implements AICompletionClient {
 
   constructor(apiKey: string, model?: string) {
     this.client = new Anthropic({ apiKey });
-    this.model = model || 'claude-sonnet-4-5-20250514';
+    // Self-heal known-bad model IDs. "claude-sonnet-4-5-20250514" was stored
+    // for some agents (Sonnet 4.5 released on 2025-09-29, not 2025-05-14 —
+    // the latter was an Opus 4.0 date, likely a typo in the model picker).
+    // Remap to the valid ID so existing misconfigured agents keep working
+    // without a manual DB update.
+    const requested = model || 'claude-sonnet-4-5-20250929';
+    const BAD_MODEL_MAP: Record<string, string> = {
+      'claude-sonnet-4-5-20250514': 'claude-sonnet-4-5-20250929',
+    };
+    this.model = BAD_MODEL_MAP[requested] ?? requested;
   }
 
   async generateCompletion(params: CompletionParams): Promise<CompletionResult> {

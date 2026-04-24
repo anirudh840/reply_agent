@@ -87,10 +87,22 @@ export async function generateKnowledgeBaseEmbeddings(agent: Agent): Promise<voi
   }
 
   // Process objection handling
+  // Handles both formats:
+  //   Legacy: Record<string, string> → { "objection text": "response text" }
+  //   Array:  { common_objections: [{ objection: "...", response: "..." }] }
   if (agent.objection_handling) {
-    const objectionTexts = Object.entries(agent.objection_handling).map(
-      ([objection, response]) => `Objection: ${objection}\nResponse: ${response}`
-    );
+    const oh = agent.objection_handling as Record<string, any>;
+    let objectionTexts: string[];
+
+    if (oh.common_objections && Array.isArray(oh.common_objections)) {
+      objectionTexts = oh.common_objections
+        .filter((entry: any) => entry.objection && entry.response)
+        .map((entry: any) => `Objection: ${entry.objection}\nResponse: ${entry.response}`);
+    } else {
+      objectionTexts = Object.entries(oh)
+        .filter(([, response]) => typeof response === 'string')
+        .map(([objection, response]) => `Objection: ${objection}\nResponse: ${response}`);
+    }
 
     for (const batch of chunkArray(objectionTexts, 20)) {
       const embeddings = await embeddingClient.generateEmbeddings(batch);

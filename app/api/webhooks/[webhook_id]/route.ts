@@ -588,7 +588,7 @@ export async function POST(
       const originalEmailContext = originalOutboundMessage?.content;
 
       const effectiveProvider = (agent.ai_provider === 'anthropic' && agent.anthropic_api_key) ? 'anthropic' : 'openai';
-      const effectiveModel = agent.ai_model || (effectiveProvider === 'anthropic' ? 'claude-sonnet-4-5-20250514' : 'gpt-4o-mini');
+      const effectiveModel = agent.ai_model || (effectiveProvider === 'anthropic' ? 'claude-sonnet-4-5-20250929' : 'gpt-4o-mini');
       console.log(`[Webhook] Generating AI response for ${reply.from_email_address} using ${effectiveProvider}/${effectiveModel}`);
 
       const generatedResponse = await generateResponse({
