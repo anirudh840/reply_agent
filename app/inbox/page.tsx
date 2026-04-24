@@ -41,6 +41,7 @@ import type { InterestedLead, Agent } from '@/lib/types';
 import { RichTextEditor } from '@/components/inbox/RichTextEditor';
 import { toast, Toaster } from 'react-hot-toast';
 import { Globe } from 'lucide-react';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 
 type Category = 'all' | 'interested' | 'not_interested' | 'followup' | 'automated' | 'not_automated' | 'tracked' | 'untracked';
 
@@ -601,11 +602,18 @@ export default function InboxPage() {
   return (
     <>
       <Toaster position="top-right" />
-      <div className="flex h-screen bg-gray-50">
-      {/* LEFT PANEL - Categories & Filters (collapsible) */}
-      <div className={`border-r border-gray-200 flex flex-col bg-white transition-all duration-300 ease-in-out overflow-hidden ${
-        leftPanelCollapsed ? 'w-14' : 'w-64'
-      }`}>
+      <PanelGroup direction="horizontal" autoSaveId="inbox-layout-v1" className="h-screen bg-gray-50">
+      {/* LEFT PANEL - Categories & Filters (resizable + collapsible) */}
+      <Panel
+        defaultSize={leftPanelCollapsed ? 4 : 16}
+        minSize={4}
+        maxSize={30}
+        collapsible
+        collapsedSize={4}
+        onCollapse={() => setLeftPanelCollapsed(true)}
+        onExpand={() => setLeftPanelCollapsed(false)}
+        className="border-r border-gray-200 flex flex-col bg-white overflow-hidden"
+      ><div className="h-full flex flex-col">
         {/* Header with collapse toggle */}
         <div className="p-3 border-b border-gray-200 flex items-center justify-between min-h-[56px]">
           {!leftPanelCollapsed && (
@@ -791,11 +799,20 @@ export default function InboxPage() {
           )}
         </div>
       </div>
+      </Panel>
+      <PanelResizeHandle className="w-1 bg-gray-200 hover:bg-blue-400 transition-colors" />
 
-      {/* MIDDLE PANEL - Conversation List (collapsible) */}
-      <div className={`border-r border-gray-200 flex flex-col bg-white transition-all duration-300 ease-in-out overflow-hidden ${
-        middlePanelCollapsed ? 'w-14' : 'w-96'
-      }`}>
+      {/* MIDDLE PANEL - Conversation List (resizable + collapsible) */}
+      <Panel
+        defaultSize={middlePanelCollapsed ? 4 : 22}
+        minSize={4}
+        maxSize={40}
+        collapsible
+        collapsedSize={4}
+        onCollapse={() => setMiddlePanelCollapsed(true)}
+        onExpand={() => setMiddlePanelCollapsed(false)}
+        className="border-r border-gray-200 flex flex-col bg-white overflow-hidden"
+      ><div className="h-full flex flex-col">
         {/* Header with collapse toggle and search */}
         <div className="p-3 border-b border-gray-200 min-h-[56px]">
           <div className="flex items-center gap-2">
@@ -900,9 +917,11 @@ export default function InboxPage() {
           </div>
         )}
       </div>
+      </Panel>
+      <PanelResizeHandle className="w-1 bg-gray-200 hover:bg-blue-400 transition-colors" />
 
-      {/* RIGHT PANEL - Thread View & Lead Sidebar (~45%) */}
-      <div className="flex-1 flex bg-white">
+      {/* RIGHT PANEL - Thread View & Lead Sidebar (resizable split inside) */}
+      <Panel defaultSize={58} minSize={30} className="flex bg-white">
         {!selectedLead ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
@@ -912,9 +931,9 @@ export default function InboxPage() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex">
+          <PanelGroup direction="horizontal" autoSaveId="inbox-thread-detail-split-v1" className="flex-1">
             {/* Thread View Section */}
-            <div className={`flex flex-col transition-all ${leadSidebarCollapsed ? 'flex-1' : 'w-2/3'}`}>
+            <Panel defaultSize={leadSidebarCollapsed ? 100 : 65} minSize={40} className="flex flex-col"><div className="h-full flex flex-col">
               {/* Approval Banner */}
               {selectedLead.needs_approval && (
                 <div className="p-3 bg-yellow-50 border-b border-yellow-200">
@@ -1460,9 +1479,13 @@ export default function InboxPage() {
                   </div>
                 </div>
             </div>
-            {/* Lead Details Sidebar (Collapsible) */}
+            </Panel>
             {!leadSidebarCollapsed && (
-              <div className="w-1/3 border-l border-gray-200 bg-gray-50 overflow-y-auto">
+              <PanelResizeHandle className="w-1 bg-gray-200 hover:bg-blue-400 transition-colors" />
+            )}
+            {/* Lead Details Sidebar (Collapsible + resizable) */}
+            {!leadSidebarCollapsed && (
+              <Panel defaultSize={35} minSize={20} maxSize={50} className="border-l border-gray-200 bg-gray-50 overflow-y-auto"><div className="h-full overflow-y-auto">
                 <div className="p-4">
                   <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <Info className="h-4 w-4" />
@@ -1712,11 +1735,12 @@ export default function InboxPage() {
                   </div>
                 </div>
               </div>
+              </Panel>
             )}
-          </div>
+          </PanelGroup>
         )}
-      </div>
-    </div>
+      </Panel>
+    </PanelGroup>
     </>
   );
 }
