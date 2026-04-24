@@ -59,7 +59,7 @@ export function RichTextEditor({ content, onChange, placeholder = 'Type your mes
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-base max-w-none focus:outline-none min-h-[200px] max-h-[500px] overflow-y-auto p-3 text-base leading-relaxed',
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-[90px] max-h-[180px] overflow-y-auto p-2 text-sm leading-snug',
       },
     },
   });
