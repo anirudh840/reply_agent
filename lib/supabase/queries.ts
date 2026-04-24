@@ -298,13 +298,18 @@ export async function updateInterestedLead(id: string, updates: Partial<Interest
   return data as InterestedLead;
 }
 
-export async function getLeadsDueForFollowup(agentId?: string) {
+export async function getLeadsDueForFollowup(agentId?: string, limit: number = 25) {
+  // Per-run cap prevents timeouts when a big backlog has accumulated. The
+  // cron runs hourly, so up to 25 leads/agent/hour = 600/agent/day. Older
+  // leads are picked first so nothing stays stuck.
   let query = supabaseAdmin
     .from('interested_leads')
     .select('*')
     .eq('conversation_status', 'active')
     .not('next_followup_due_at', 'is', null)
-    .lte('next_followup_due_at', new Date().toISOString());
+    .lte('next_followup_due_at', new Date().toISOString())
+    .order('next_followup_due_at', { ascending: true })
+    .limit(limit);
 
   if (agentId) query = query.eq('agent_id', agentId);
 

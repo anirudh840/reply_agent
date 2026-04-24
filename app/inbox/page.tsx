@@ -1161,7 +1161,7 @@ export default function InboxPage() {
 
                                 {/* Message Body */}
                                 <div className="p-4">
-                                  <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                                  <div className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
                                     {message.content}
                                   </div>
                                 </div>
@@ -1234,7 +1234,7 @@ export default function InboxPage() {
 
                             {/* Draft Response Body */}
                             <div className="p-4">
-                              <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                              <div className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
                                 {selectedLead.last_response_generated}
                               </div>
                             </div>

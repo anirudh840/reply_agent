@@ -1,4 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/followups/schedule",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "functions": {
+    "app/api/followups/schedule/route.ts": {
+      "maxDuration": 300
+    }
+  }
 }
