@@ -175,25 +175,37 @@ export class EmbeddingClient {
   }
 
   async generateEmbedding(text: string): Promise<EmbeddingResult> {
-    try {
-      const truncatedText = this.truncateForEmbedding(text);
-      const response = await this.client.embeddings.create({
-        model: OPENAI_MODELS.EMBEDDING,
-        input: truncatedText,
-        dimensions: OPENAI_MODELS.EMBEDDING_DIMENSIONS,
-      });
+    const truncatedText = this.truncateForEmbedding(text);
+    // Retry transient 429/5xx/network failures with short exponential backoff.
+    // Non-retriable errors (400 bad input, 401 auth) throw immediately.
+    const MAX_ATTEMPTS = 3;
+    let lastError: any;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const response = await this.client.embeddings.create({
+          model: OPENAI_MODELS.EMBEDDING,
+          input: truncatedText,
+          dimensions: OPENAI_MODELS.EMBEDDING_DIMENSIONS,
+        });
 
-      return {
-        embedding: response.data[0].embedding,
-        model: response.model,
-        usage: {
-          prompt_tokens: response.usage.prompt_tokens,
-          total_tokens: response.usage.total_tokens,
-        },
-      };
-    } catch (error: any) {
-      throw new OpenAIError('Failed to generate embedding', error.status, error);
+        return {
+          embedding: response.data[0].embedding,
+          model: response.model,
+          usage: {
+            prompt_tokens: response.usage.prompt_tokens,
+            total_tokens: response.usage.total_tokens,
+          },
+        };
+      } catch (error: any) {
+        lastError = error;
+        const status: number | undefined = error?.status;
+        const retriable = status === 429 || (typeof status === 'number' && status >= 500) || !status;
+        if (!retriable || attempt === MAX_ATTEMPTS) break;
+        const delayMs = 300 * Math.pow(2, attempt - 1); // 300ms, 600ms
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
+    throw new OpenAIError('Failed to generate embedding', lastError?.status, lastError);
   }
 
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {

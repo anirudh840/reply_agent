@@ -53,7 +53,14 @@ export function formatContextForPrompt(results: RetrievalResult[]): string {
 }
 
 /**
- * Retrieve and format context in one step
+ * Retrieve and format context in one step.
+ *
+ * RAG is an *enhancement*, not a blocker. If the embedding API call fails
+ * (OpenAI rate limit, 5xx, timeout, bad input) the caller still needs to
+ * generate a response — it just loses a bit of context. We catch the failure
+ * here, log it, and return an empty RAG section. The generator's prompt also
+ * always includes the full knowledge base and objection list inline, so
+ * responses without RAG are still usable.
  */
 export async function getFormattedContext(params: {
   query: string;
@@ -62,11 +69,17 @@ export async function getFormattedContext(params: {
   topK?: number;
   similarityThreshold?: number;
 }): Promise<{ results: RetrievalResult[]; formattedContext: string }> {
-  const results = await retrieveContext(params);
-  const formattedContext = formatContextForPrompt(results);
-
-  return {
-    results,
-    formattedContext,
-  };
+  try {
+    const results = await retrieveContext(params);
+    const formattedContext = formatContextForPrompt(results);
+    return { results, formattedContext };
+  } catch (error: any) {
+    console.warn(
+      `[RAG] embedding retrieval failed, falling back to empty context. agent=${params.agentId} error=${error?.message || error}`
+    );
+    return {
+      results: [],
+      formattedContext: 'No relevant context retrieved (embedding unavailable).',
+    };
+  }
 }
