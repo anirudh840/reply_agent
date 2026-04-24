@@ -64,16 +64,25 @@ export async function PATCH(
       }
     }
 
-    // Validate ai_provider / ai_model compatibility
+    // Validate ai_provider / ai_model compatibility.
+    // Only validate when the submitted model is actually being CHANGED from the
+    // stored value. Otherwise an existing agent whose DB ai_model happens to
+    // be a legacy/deprecated ID (e.g. "claude-sonnet-4-5-20250514" which the
+    // client self-heals to the 0929 release) would fail every save — even
+    // when the user is only editing an unrelated field like booking_platform.
     if (body.ai_provider || body.ai_model) {
-      const { AI_MODELS } = await import('@/lib/constants');
-      const provider = body.ai_provider || (await getAgent(id)).ai_provider || 'openai';
+      const current = await getAgent(id);
+      const provider = body.ai_provider || current.ai_provider || 'openai';
       const model = body.ai_model;
-      if (model && !AI_MODELS[provider as keyof typeof AI_MODELS]?.some((m: { id: string }) => m.id === model)) {
-        return NextResponse.json(
-          { success: false, error: `Model "${model}" is not compatible with provider "${provider}"` },
-          { status: 400 }
-        );
+      const modelChanged = model !== undefined && model !== current.ai_model;
+      if (modelChanged) {
+        const { AI_MODELS } = await import('@/lib/constants');
+        if (model && !AI_MODELS[provider as keyof typeof AI_MODELS]?.some((m: { id: string }) => m.id === model)) {
+          return NextResponse.json(
+            { success: false, error: `Model "${model}" is not compatible with provider "${provider}"` },
+            { status: 400 }
+          );
+        }
       }
     }
 
